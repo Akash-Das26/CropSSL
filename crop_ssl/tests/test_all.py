@@ -1126,6 +1126,76 @@ def test_prototypical_network_distance():
 
 
 # ============================================================
+# 15. New Dataset Tests (PlantPathology, iCassava2019)
+# ============================================================
+def test_plant_pathology():
+    """Test PlantPathology 2020 dataset (apple foliar disease)."""
+    from crop_ssl.data.datasets.plant_pathology import PlantPathologyDataset
+    from crop_ssl.data.transforms.augmentations import get_default_train_transform
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmpdir:
+        transform = get_default_train_transform(224)
+        ds = PlantPathologyDataset(root=tmpdir, split="train", transform=transform)
+        assert len(ds) > 0
+        img, label = ds[0]
+        assert img.shape == (3, 224, 224)
+        assert 0 <= label < 4
+        assert ds.num_classes == 4
+        dist = ds.get_class_distribution()
+        assert len(dist) == 4
+        print(f"    PlantPathology: {len(ds)} samples, {ds.num_classes} classes, dist={dist}")
+
+
+def test_plant_pathology_severity():
+    """Test PlantPathology with severity estimation."""
+    from crop_ssl.data.datasets.plant_pathology import PlantPathologyDataset
+    from crop_ssl.data.transforms.augmentations import get_default_train_transform
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmpdir:
+        transform = get_default_train_transform(224)
+        ds = PlantPathologyDataset(root=tmpdir, split="train", transform=transform, include_severity=True)
+        assert len(ds) > 0
+        img, label, severity = ds[0]
+        assert img.shape == (3, 224, 224)
+        assert 0 <= label < 4
+        assert 0 <= severity <= 4
+        assert ds.num_severity_levels == 5
+        print(f"    PlantPathology+severity: {len(ds)} samples, severity levels={ds.num_severity_levels}")
+
+
+def test_icassava_2019():
+    """Test iCassava 2019 dataset."""
+    from crop_ssl.data.datasets.icassava_2019 import ICassava2019Dataset
+    from crop_ssl.data.transforms.augmentations import get_default_train_transform
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmpdir:
+        transform = get_default_train_transform(224)
+        ds = ICassava2019Dataset(root=tmpdir, split="train", transform=transform)
+        assert len(ds) > 0
+        img, label = ds[0]
+        assert img.shape == (3, 224, 224)
+        assert 0 <= label < 5
+        assert ds.num_classes == 5
+        dist = ds.get_class_distribution()
+        assert len(dist) == 5
+        print(f"    iCassava2019: {len(ds)} samples, {ds.num_classes} classes, dist={dist}")
+
+
+def test_dataset_registry_complete():
+    """Test that all 9 datasets are in the registry."""
+    from crop_ssl.data import DATASET_REGISTRY
+    assert len(DATASET_REGISTRY) >= 9
+    required = [
+        "plantvillage", "plantdoc", "rice_leaf", "coffee_leaf",
+        "domainnet_plant", "new_plant_diseases", "cassava_leaf",
+        "plant_pathology", "icassava_2019",
+    ]
+    for name in required:
+        assert name in DATASET_REGISTRY, f"{name} missing from registry"
+    print(f"    Registry: {len(DATASET_REGISTRY)} datasets, all required present")
+
+
+# ============================================================
 # Run All Tests
 # ============================================================
 if __name__ == "__main__":
@@ -1214,6 +1284,12 @@ if __name__ == "__main__":
     run_test("NewPlantDiseases dataset", test_new_plant_diseases)
     run_test("CassavaLeaf dataset", test_cassava_leaf)
     run_test("Dataset registry", test_dataset_registry)
+
+    print("\n🔬 Extended Dataset Tests:")
+    run_test("PlantPathology 2020", test_plant_pathology)
+    run_test("PlantPathology + severity", test_plant_pathology_severity)
+    run_test("iCassava 2019", test_icassava_2019)
+    run_test("Registry (9 datasets)", test_dataset_registry_complete)
 
     print("\n🌐 Backend & Export Tests:")
     run_test("Backend API config", test_backend_api)

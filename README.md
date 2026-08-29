@@ -5,10 +5,10 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.8+-blue.svg" alt="Python">
   <img src="https://img.shields.io/badge/PyTorch-2.0+-ee4c2c.svg" alt="PyTorch">
-  <img src="https://img.shields.io/badge/Tests-81%20Passing-brightgreen.svg" alt="Tests">
+  <img src="https://img.shields.io/badge/Tests-85%20Passing-brightgreen.svg" alt="Tests">
   <img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License">
   <img src="https://img.shields.io/badge/Models-4%20SSL-brightgreen.svg" alt="SSL Methods">
-  <img src="https://img.shields.io/badge/Datasets-7-blue.svg" alt="Datasets">
+  <img src="https://img.shields.io/badge/Datasets-9-blue.svg" alt="Datasets">
 </p>
 
 ---
@@ -95,15 +95,17 @@ Input Images
 
 ## 3. Datasets
 
-| Dataset | Domain | Images | Classes | Source |
-|---------|--------|--------|---------|--------|
-| PlantVillage | Controlled laboratory | 54,309 | 38 | [Mendeley](https://data.mendeley.com/datasets/tywbtsjrj5/2) |
-| PlantDoc | Real-world field | 2,598 | 27 | [GitHub](https://github.com/pratikkayal/PlantDoc-Dataset) |
-| RiceLeaf | Agricultural field | ~5,000+ | 7 | Kaggle |
-| CoffeeLeaf | Agricultural field | ~5,000+ | 5 | Research publications |
-| DomainNet-Plant | Multi-domain | Custom | 12 | Synthetic (5 domains) |
-| NewPlantDiseases | Augmented lab | 87,848 | 38 | Kaggle (augmented PlantVillage) |
-| CassavaLeaf | Agricultural field | 21,397 | 5 | Kaggle (African food crop) |
+| Dataset | Domain | Images | Classes | Role | Source |
+|---------|--------|--------|---------|------|--------|
+| PlantVillage | Controlled laboratory | 54,309 | 38 | Pretrain baseline | [HuggingFace](https://huggingface.co/datasets/mohanty/PlantVillage) / [Mendeley](https://data.mendeley.com/datasets/tywbtsjrj5/2) |
+| PlantDoc | Real-world field | 2,598 | 27 | Domain-shift stress test | [GitHub](https://github.com/pratikkayal/PlantDoc-Dataset) / [Kaggle](https://www.kaggle.com/datasets/smartlab/plantdoc-plant-disease-recognition) |
+| CassavaLeaf | Smartphone field | 21,397 | 5 | Few-shot LoRA adaptation | [HuggingFace](https://huggingface.co/datasets/pufanyi/cassava-leaf-disease-classification) / [Kaggle](https://www.kaggle.com/competitions/cassava-leaf-disease-classification) |
+| PlantPathology 2020 | Apple orchard | 1,821 | 4 | Severity estimation | [Kaggle](https://www.kaggle.com/competitions/plant-pathology-2020-fgvc7) / [arXiv:2006.13285](https://arxiv.org/abs/2006.13285) |
+| iCassava 2019 | Ugandan field | 5,656 | 5 | Cross-dataset generalization | [Kaggle](https://www.kaggle.com/competitions/cassava-disease) / [arXiv:1908.03309](https://arxiv.org/abs/1908.03309) |
+| RiceLeaf | Agricultural field | ~5,000+ | 7 | Supplementary | Kaggle |
+| CoffeeLeaf | Agricultural field | ~5,000+ | 5 | Supplementary | Research publications |
+| DomainNet-Plant | Multi-domain | Custom | 12 | Domain shift analysis | Synthetic (5 domains) |
+| NewPlantDiseases | Augmented lab | 87,848 | 38 | Augmented baseline | [Kaggle](https://www.kaggle.com/datasets/emmarex/plantdisease) |
 
 ---
 
@@ -111,7 +113,7 @@ Input Images
 
 ### 4.1 Test Suite Validation
 
-All 81 unit and integration tests pass across the following modules:
+All 85 unit and integration tests pass across the following modules:
 
 | Module | Tests | Status |
 |--------|-------|--------|
@@ -125,6 +127,7 @@ All 81 unit and integration tests pass across the following modules:
 | Advanced Features (GradCAM, TTA, Ensemble, Calibration, AL) | 10 | All passing |
 | Training Utilities (EarlyStopping, EMA, CutMix, MixUp, LRScheduler) | 7 | All passing |
 | New Dataset Loaders (NewPlantDiseases, CassavaLeaf, DomainNet) | 3 | All passing |
+| Extended Datasets (PlantPathology, iCassava2019, Registry) | 4 | All passing |
 | Backend API & Export | 2 | All passing |
 | Edge Cases & Integration (configs, logging, reproducibility, etc.) | 19 | All passing |
 
@@ -175,18 +178,38 @@ pip install streamlit fastapi uvicorn  # For web interface
 # Synthetic datasets for pipeline testing (instant)
 python -m crop_ssl.scripts.download_data --synthetic
 
-# Download real PlantVillage dataset
+# Download all datasets (auto-downloads where possible)
 python -m crop_ssl.scripts.download_data --data_root ./data
 
-# Individual dataset
+# Download specific dataset
 python -m crop_ssl.scripts.download_data --dataset plantvillage
+python -m crop_ssl.scripts.download_data --dataset cassava_leaf
+
+# List all datasets with sources
+python -m crop_ssl.scripts.download_data --list
 ```
+
+Real dataset sources (auto-download where possible):
+
+| Dataset | Auto-download | Manual download |
+|---------|:------------:|----------------|
+| PlantVillage | HuggingFace | [GitHub](https://github.com/spMohanty/PlantVillage-Dataset) |
+| CassavaLeaf | HuggingFace | [Kaggle](https://www.kaggle.com/competitions/cassava-leaf-disease-classification) |
+| PlantDoc | — | [GitHub](https://github.com/pratikkayal/PlantDoc-Dataset) |
+| PlantPathology | — | [Kaggle](https://www.kaggle.com/competitions/plant-pathology-2020-fgvc7) |
+| iCassava2019 | — | [Kaggle](https://www.kaggle.com/competitions/cassava-disease) |
+| RiceLeaf | — | Kaggle |
+| CoffeeLeaf | — | — |
+| NewPlantDiseases | — | [Kaggle](https://www.kaggle.com/datasets/emmarex/plantdisease) |
 
 Expected directory structure after download:
 ```
 data/
   PlantVillage/colored/Tomato___Bacterial_spot/...
   PlantDoc/Apple___Scab/...
+  cassava-leaf-disease/train_images/...
+  PlantPathology/images/...
+  iCassava2019/train/cbb/...
   RiceLeaf/bacterial_leaf_blight/...
   CoffeeLeaf/healthy/...
 ```
@@ -281,14 +304,16 @@ selected = al.uncertainty_sampling(unlabeled_loader, n_samples=100)
 CropSSL/
   crop_ssl/
     data/
-      datasets/           # 7 dataset loaders with synthetic fallbacks
-        plantvillage.py    # Auto-download + synthetic
-        plantdoc.py        # Synthetic fallback
+      datasets/           # 9 dataset loaders with auto-download support
+        plantvillage.py    # HuggingFace auto-download + Mendeley + synthetic
+        plantdoc.py        # GitHub source + synthetic fallback
+        cassava_leaf.py    # HuggingFace auto-download + Kaggle
+        plant_pathology.py # Apple foliar disease + severity estimation
+        icassava_2019.py   # Cassava disease (predecessor, cross-dataset)
         rice_leaf.py       # Synthetic fallback
         coffee_leaf.py     # Synthetic fallback
-        domainnet_plant.py # Multi-domain
+        domainnet_plant.py # Multi-domain (5 domains)
         new_plant_diseases.py  # 87K images, 38 classes
-        cassava_leaf.py    # 21K images, 5 classes
       transforms/         # SSL-specific augmentation pipelines
     models/
       backbones/vit.py    # ViT-S/16, ViT-B/16, ViT-L/16
