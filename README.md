@@ -1,6 +1,12 @@
-# CropSSL
+<p align="center">
+  <img src="assets/logo.png" alt="CropSSL Logo" width="200">
+</p>
 
-**Cross-Domain Robustness of Self-Supervised Vision Foundation Models for Crop Disease Detection: A Few-Shot Field Adaptation Approach**
+<h1 align="center">CropSSL</h1>
+
+<p align="center">
+  <strong>Cross-Domain Robustness of Self-Supervised Vision Foundation Models for Crop Disease Detection: A Few-Shot Field Adaptation Approach</strong>
+</p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.8+-blue.svg" alt="Python">

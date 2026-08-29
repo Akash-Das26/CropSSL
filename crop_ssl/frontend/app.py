@@ -279,7 +279,15 @@ with st.sidebar:
 # ============================================================
 # Main Content
 # ============================================================
-st.markdown('<div class="main-header">🌿 CropSSL</div>', unsafe_allow_html=True)
+
+# Display logo
+logo_path = Path(__file__).parent.parent.parent / "assets" / "logo.png"
+if logo_path.exists():
+    st.image(str(logo_path), width=150, use_container_width=False)
+else:
+    st.markdown('<div class="main-header">🌿</div>', unsafe_allow_html=True)
+
+st.markdown('<div class="main-header">CropSSL</div>', unsafe_allow_html=True)
 st.markdown(
     '<div class="sub-header">Cross-Domain Robustness of Self-Supervised Vision Foundation Models for Crop Disease Detection</div>',
     unsafe_allow_html=True,
