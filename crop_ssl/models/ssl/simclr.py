@@ -87,19 +87,15 @@ class SimCLR(nn.Module):
         sim = sim.masked_select(mask).view(2 * B, 2 * B - 1)
 
         # Positive pairs: (i, i+B) and (i+B, i)
-        labels = torch.zeros(2 * B, dtype=torch.long, device=sim.device)
-
-        # Adjust labels for removed diagonal
-        # After removing diagonal, positive index shifts
-        # For row i (i < B): positive is at i+B-1 (shifted left by 1)
-        # For row i (i >= B): positive is at i-1 (shifted left by 1)
-        adjusted_labels = []
-        for i in range(2 * B):
-            pos = i + B if i < B else i - B
-            if pos > i:
-                pos -= 1
-            adjusted_labels.append(pos)
-        labels = torch.tensor(adjusted_labels, device=sim.device)
+        # After removing diagonal, positive index shifts for i < pos
+        # For i < B: positive was at i+B, shifts to i+B-1
+        # For i >= B: positive was at i-B, stays at i-B
+        labels = torch.arange(2 * B, device=sim.device)
+        labels = torch.where(
+            labels < B,
+            labels + B - 1,   # i < B: positive at i+B-1
+            labels - B,         # i >= B: positive at i-B
+        )
 
         loss = F.cross_entropy(sim, labels)
         return loss

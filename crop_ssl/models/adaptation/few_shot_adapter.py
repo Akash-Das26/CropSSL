@@ -66,13 +66,14 @@ class LoRALayer(nn.Module):
 class LoRAAdapter(nn.Module):
     """LoRA adapter for ViT backbone.
 
-    Wraps the backbone and adds LoRA layers to attention projections.
+    Replaces attention projection layers with LoRA-modified versions.
+    The original weights are frozen; only low-rank matrices are trained.
 
     Args:
         backbone: Pretrained ViT backbone.
         rank: Low-rank decomposition rank.
         alpha: Scaling factor.
-        target_modules: Which modules to adapt.
+        target_modules: Which module name substrings to adapt.
         dropout: Dropout rate.
     """
 
@@ -86,7 +87,7 @@ class LoRAAdapter(nn.Module):
     ):
         super().__init__()
         self.backbone = backbone
-        self.lora_layers = nn.ModuleDict()
+        self.lora_modules = nn.ModuleDict()
 
         if target_modules is None:
             target_modules = ["attn.qkv", "attn.proj"]
@@ -95,24 +96,39 @@ class LoRAAdapter(nn.Module):
         for param in self.backbone.parameters():
             param.requires_grad = False
 
-        # Add LoRA layers
+        # Replace target linear layers with LoRA-wrapped versions
         for name, module in self.backbone.named_modules():
             for target in target_modules:
-                if target in name:
-                    if isinstance(module, nn.Linear):
-                        layer_name = name.replace(".", "_")
-                        self.lora_layers[layer_name] = LoRALayer(
-                            module.in_features,
-                            module.out_features,
-                            rank=rank,
-                            alpha=alpha,
-                            dropout=dropout,
-                        )
+                if target in name and isinstance(module, nn.Linear):
+                    lora_name = name.replace(".", "_")
+                    lora_layer = LoRALayer(
+                        module.in_features,
+                        module.out_features,
+                        rank=rank,
+                        alpha=alpha,
+                        dropout=dropout,
+                    )
+                    # Copy pretrained weights into LoRALayer
+                    lora_layer.weight.data.copy_(module.weight.data)
+                    if module.bias is not None:
+                        lora_layer.bias.data.copy_(module.bias.data)
+                    self.lora_modules[lora_name] = lora_layer
+
+                    # Replace the module in the backbone
+                    self._replace_module(name, lora_layer)
 
         print(
-            f"Added LoRA to {len(self.lora_layers)} layers "
+            f"Added LoRA to {len(self.lora_modules)} layers "
             f"(rank={rank}, alpha={alpha})"
         )
+
+    def _replace_module(self, target_name: str, new_module: nn.Module):
+        """Replace a module in the backbone by name path."""
+        parts = target_name.split(".")
+        parent = self.backbone
+        for part in parts[:-1]:
+            parent = getattr(parent, part)
+        setattr(parent, parts[-1], new_module)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.backbone.forward_features(x)
@@ -290,8 +306,9 @@ class FewShotAdapter(nn.Module):
         rank: int,
         dropout: float,
     ):
-        """LoRA fine-tuning."""
-        self.lora = LoRAAdapter(
+        """LoRA fine-tuning — replaces attention layers in-place."""
+        # LoRAAdapter freezes backbone and replaces attn layers
+        self.lora_adapter = LoRAAdapter(
             self.backbone,
             rank=rank,
             dropout=dropout,
@@ -346,7 +363,8 @@ class FewShotAdapter(nn.Module):
                 n_way=n_way or self.num_classes,
             )
 
-        # For linear, lora, maml: standard forward
+        # For linear, lora, maml: standard forward through (modified) backbone
+        # LoRA modifies the backbone in-place, so forward_features goes through LoRA layers
         features = self.backbone.forward_features(x)
         logits = self.classifier(features)
 

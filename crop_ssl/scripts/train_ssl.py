@@ -132,10 +132,10 @@ def train_one_epoch_ssl(
                 epoch * len(dataloader) + batch_idx,
             )
 
-        # Update teacher for DINO
+        # Update teacher for DINO (center BEFORE teacher EMA)
         if method == "dinov2":
-            model.update_teacher()
             model.update_center(result["teacher_out"])
+            model.update_teacher()
 
     avg_loss = total_loss / max(num_batches, 1)
     logger.log_scalar("train/loss_epoch", avg_loss, epoch)

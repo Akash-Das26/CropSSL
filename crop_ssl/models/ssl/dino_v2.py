@@ -88,8 +88,10 @@ class DINOv2(nn.Module):
             embed_dim=embed_dim, patch_size=patch_size
         )
 
-        # Freeze teacher
+        # Freeze teacher (both backbone AND head)
         for p in self.teacher_backbone.parameters():
+            p.requires_grad = False
+        for p in self.teacher_head.parameters():
             p.requires_grad = False
 
         # Projection heads
@@ -200,22 +202,19 @@ class DINOv2(nn.Module):
             teacher_all.append(teacher_out.mean(dim=0))
         teacher_all = torch.stack(teacher_all, dim=0)
 
-        # Cross-entropy loss: student predicts teacher
+        # Cross-entropy loss: each student crop predicts teacher output
+        # For global crops (0,1): student[i] predicts teacher[i]
+        # For local crops (2..N): student[i] predicts mean of teacher globals
         total_loss = 0.0
-        n_loss_terms = 0
-        for t_idx in range(len(teacher_all)):
-            for s_idx in range(len(student_out)):
-                if s_idx == t_idx:
-                    continue  # Skip same view
-                loss = F.kl_div(
-                    student_out[s_idx].unsqueeze(0),
-                    teacher_all[t_idx].unsqueeze(0),
-                    reduction="batchmean",
-                )
-                total_loss += loss
-                n_loss_terms += 1
+        for s_idx in range(len(student_out)):
+            loss = F.kl_div(
+                student_out[s_idx].unsqueeze(0),
+                teacher_all[s_idx].unsqueeze(0),
+                reduction="batchmean",
+            )
+            total_loss += loss
 
-        total_loss /= n_loss_terms
+        total_loss /= len(student_out)
 
         return {
             "loss": total_loss,

@@ -74,11 +74,13 @@ class MAE(nn.Module):
             img_size=img_size,
             global_pool=False,
         )
-        # Remove CLS token for MAE (we use mask tokens directly)
-        self.encoder.cls_token = nn.Parameter(torch.zeros(0))
+        # Remove CLS token for MAE: keep pos_embed WITHOUT the CLS position
+        # pos_embed[:, 0, :] is the CLS position; we keep indices 1..N
         self.encoder.pos_embed = nn.Parameter(
-            self.encoder.pos_embed[:, 1:, :]  # Remove CLS position
+            self.encoder.pos_embed[:, 1:, :].clone()
         )
+        # Mark that this encoder has no CLS token
+        self.encoder._no_cls = True
 
         # Decoder
         self.decoder_embed = nn.Linear(embed_dim, decoder_dim)
@@ -161,8 +163,8 @@ class MAE(nn.Module):
         # Patch embed
         x = self.encoder.patch_embed(x)
 
-        # Add positional embedding (without CLS)
-        x = x + self.encoder.pos_embed[:, 1:, :]
+        # Add positional embedding (CLS already removed in __init__)
+        x = x + self.encoder.pos_embed
 
         # Random masking
         x, mask, ids_restore = self.random_masking(x, self.mask_ratio)
@@ -317,7 +319,13 @@ class MAE(nn.Module):
         Returns:
             Feature tensor (B, D).
         """
-        return self.encoder.forward_features(x)
+        # Encode without CLS token for MAE
+        feat = self.encoder.patch_embed(x)
+        feat = feat + self.encoder.pos_embed
+        for block in self.encoder.blocks:
+            feat = block(feat)
+        feat = self.encoder.norm(feat)
+        return feat.mean(dim=1)  # Global average pooling over patches
 
     def load_pretrained(self, checkpoint_path: str):
         """Load pretrained weights."""

@@ -141,12 +141,14 @@ class MAEReconstructionHead(nn.Module):
         decoder_depth: int = 8,
         decoder_heads: int = 16,
         patch_size: int = 16,
+        img_size: int = 224,
     ):
         super().__init__()
         self.decoder_embed = nn.Linear(embed_dim, decoder_dim)
 
+        num_patches = (img_size // patch_size) ** 2
         self.decoder_pos_embed = nn.Parameter(
-            torch.zeros(1, 197, decoder_dim)
+            torch.zeros(1, num_patches + 1, decoder_dim)
         )
 
         self.decoder_blocks = nn.ModuleList([
