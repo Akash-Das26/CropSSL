@@ -733,6 +733,75 @@ def test_model_summary():
 
 
 # ============================================================
+# 12. New Dataset Tests
+# ============================================================
+def test_new_plant_diseases():
+    from crop_ssl.data.datasets.new_plant_diseases import NewPlantDiseasesDataset
+    from crop_ssl.data.transforms.augmentations import get_default_train_transform
+    import tempfile, os
+    with tempfile.TemporaryDirectory() as tmpdir:
+        transform = get_default_train_transform(224)
+        ds = NewPlantDiseasesDataset(root=tmpdir, split="train", transform=transform)
+        assert len(ds) > 0
+        img, label = ds[0]
+        assert img.shape == (3, 224, 224)
+        print(f"    NewPlantDiseases: {len(ds)} samples, {ds.num_classes} classes")
+
+
+def test_cassava_leaf():
+    from crop_ssl.data.datasets.cassava_leaf import CassavaLeafDataset
+    from crop_ssl.data.transforms.augmentations import get_default_train_transform
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmpdir:
+        transform = get_default_train_transform(224)
+        ds = CassavaLeafDataset(root=tmpdir, split="train", transform=transform)
+        assert len(ds) > 0
+        img, label = ds[0]
+        assert img.shape == (3, 224, 224)
+        print(f"    CassavaLeaf: {len(ds)} samples, {ds.num_classes} classes")
+
+
+def test_dataset_registry():
+    from crop_ssl.data import DATASET_REGISTRY
+    assert len(DATASET_REGISTRY) >= 7
+    assert "plantvillage" in DATASET_REGISTRY
+    assert "cassava_leaf" in DATASET_REGISTRY
+    print(f"    Registry: {len(DATASET_REGISTRY)} datasets")
+
+
+# ============================================================
+# 13. Backend API Tests
+# ============================================================
+def test_backend_api():
+    from crop_ssl.backend.api import app, DISEASE_CLASSES, NUM_CLASSES
+    assert NUM_CLASSES == 38
+    assert len(DISEASE_CLASSES) == 38
+    print(f"    API: {NUM_CLASSES} disease classes loaded")
+
+
+def test_model_export():
+    from crop_ssl.utils.export import model_summary, count_parameters
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    model = vit_small_patch16(num_classes=10)
+    params = count_parameters(model)
+    summary = model_summary(model)
+    assert params["total"] > 0
+    assert "Total parameters" in summary
+    # Test ONNX export if onnxscript is available
+    try:
+        import onnxscript
+        from crop_ssl.utils.export import export_to_onnx
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = export_to_onnx(model, f"{tmpdir}/test.onnx")
+            assert Path(path).exists()
+        print(f"    Export: ONNX saved, {params['total']:,} params")
+    except ImportError:
+        print(f"    Export: summary OK, ONNX skipped (onnxscript not installed)")
+        print(f"    Params: {params['total']:,}")
+
+
+# ============================================================
 # Run All Tests
 # ============================================================
 if __name__ == "__main__":
@@ -816,6 +885,15 @@ if __name__ == "__main__":
     run_test("Learning rate finder", test_lr_finder)
     run_test("Cosine warmup scheduler", test_cosine_warmup)
     run_test("Model summary & export utils", test_model_summary)
+
+    print("\n📦 New Dataset Tests:")
+    run_test("NewPlantDiseases dataset", test_new_plant_diseases)
+    run_test("CassavaLeaf dataset", test_cassava_leaf)
+    run_test("Dataset registry", test_dataset_registry)
+
+    print("\n🌐 Backend & Export Tests:")
+    run_test("Backend API config", test_backend_api)
+    run_test("ONNX export", test_model_export)
 
     print("\n" + "=" * 60)
     print(f"Results: {PASS} passed, {FAIL} failed out of {PASS + FAIL} tests")

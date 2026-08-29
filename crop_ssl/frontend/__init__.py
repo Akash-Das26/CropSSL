@@ -1,0 +1,1 @@
+"""CropSSL Frontend Application."""

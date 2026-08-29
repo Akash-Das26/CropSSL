@@ -160,6 +160,7 @@ MAML              |████████████████████�
 git clone https://github.com/officialarghya29/CropSSL.git
 cd CropSSL
 pip install -r requirements.txt
+pip install streamlit fastapi uvicorn  # For web interface
 ```
 
 ### 5.1 Dataset Preparation
@@ -186,9 +187,40 @@ data/
 
 ---
 
-## 6. Usage
+## 6. Web Interface
 
-### 6.1 SSL Pre-training
+### 6.1 Frontend (Streamlit)
+
+```bash
+streamlit run crop_ssl/frontend/app.py
+# Opens at http://localhost:8501
+```
+
+Features:
+- Real-time disease detection with image upload
+- Model comparison dashboard
+- Training monitoring with live loss curves
+- Cross-domain analysis visualization
+
+### 6.2 Backend API (FastAPI)
+
+```bash
+python -m crop_ssl.backend.api
+# API docs at http://localhost:8000/docs
+```
+
+Endpoints:
+- `POST /predict` — Upload image for disease classification
+- `GET /models` — List loaded models
+- `POST /models/{name}/load` — Load a specific model
+- `POST /training/start` — Start background training
+- `GET /classes` — List all 38 disease classes
+
+---
+
+## 7. Usage
+
+### 7.1 SSL Pre-training
 
 ```bash
 python -m crop_ssl.scripts.train_ssl \
@@ -196,7 +228,7 @@ python -m crop_ssl.scripts.train_ssl \
     --data_root ./data --epochs 100
 ```
 
-### 6.2 Cross-Domain Evaluation
+### 7.2 Cross-Domain Evaluation
 
 ```bash
 python -m crop_ssl.scripts.evaluate \
@@ -207,7 +239,7 @@ python -m crop_ssl.scripts.evaluate \
     --adaptation_method lora --k_shot 5
 ```
 
-### 6.3 Advanced Evaluation Tools
+### 7.3 Advanced Evaluation Tools
 
 ```python
 # Grad-CAM disease localization
@@ -237,13 +269,20 @@ selected = al.uncertainty_sampling(unlabeled_loader, n_samples=100)
 
 ---
 
-## 7. Project Structure
+## 8. Project Structure
 
 ```
 CropSSL/
   crop_ssl/
     data/
-      datasets/           # 5 dataset loaders with synthetic fallbacks
+      datasets/           # 7 dataset loaders with synthetic fallbacks
+        plantvillage.py    # Auto-download + synthetic
+        plantdoc.py        # Synthetic fallback
+        rice_leaf.py       # Synthetic fallback
+        coffee_leaf.py     # Synthetic fallback
+        domainnet_plant.py # Multi-domain
+        new_plant_diseases.py  # 87K images, 38 classes
+        cassava_leaf.py    # 21K images, 5 classes
       transforms/         # SSL-specific augmentation pipelines
     models/
       backbones/vit.py    # ViT-S/16, ViT-B/16, ViT-L/16
@@ -259,18 +298,29 @@ CropSSL/
       active_learning.py  # Uncertainty, margin, committee, core-set
       feature_viz.py      # t-SNE, UMAP embeddings
       cross_domain_eval.py
+    backend/
+      api.py              # FastAPI server (port 8000)
+    frontend/
+      app.py              # Streamlit UI (port 8501)
     configs/              # Dataclass-based experiment configurations
     scripts/
       train_ssl.py        # SSL pre-training CLI
       evaluate.py         # Cross-domain evaluation CLI
       download_data.py    # Dataset preparation CLI
-    tests/                # 50 unit and integration tests
-    utils/                # Logging, checkpointing, reproducibility
+      compare_methods.py  # Benchmarking script
+    tests/                # 62 unit and integration tests
+    utils/
+      training.py         # EarlyStopping, EMA, LRFinder, CutMix, MixUp
+      export.py           # ONNX export, model summary
+      logging.py          # TensorBoard logging
+      checkpointing.py    # Model save/load
+      reproducibility.py  # Seed management
+      visualization.py    # Plotting utilities
 ```
 
 ---
 
-## 8. Configuration
+## 9. Configuration
 
 ```python
 from crop_ssl.configs.default import ExperimentConfig
