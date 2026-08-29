@@ -250,8 +250,10 @@ class ActiveLearner:
         }
 
     @torch.no_grad()
+    @torch.no_grad()
     def _evaluate(self, dataloader) -> float:
         """Evaluate model accuracy."""
+        self.model.eval()
         correct = 0
         total = 0
         for images, labels in dataloader:

@@ -95,7 +95,8 @@ class TestTimeAugmentation:
             Dict with 'logits', 'probs', 'pred', 'confidence'.
             Optionally 'std' for uncertainty estimation.
         """
-        from PIL import Image
+        from PIL import Image as PILImage
+        import numpy as np
 
         # Convert tensor to PIL if needed
         if isinstance(image, torch.Tensor):
@@ -104,9 +105,7 @@ class TestTimeAugmentation:
                 mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
                 std = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
                 img_np = (image.cpu() * std + mean).permute(1, 2, 0).numpy()
-                from PIL import Image as PILImage
-                import numpy as np
-                image = PILImage.fromarray((img_np * 255).astype("uint8"))
+                image = PILImage.fromarray((img_np * 255).clip(0, 255).astype("uint8"))
 
         all_logits = []
         for aug in self.augmentations:

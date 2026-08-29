@@ -49,10 +49,15 @@ class ModelEnsemble(nn.Module):
         """
         all_logits = []
         for model in self.models:
-            if hasattr(model, "encode"):
+            if hasattr(model, "forward") and not hasattr(model, "encode"):
+                logits = model(x)
+            elif hasattr(model, "encode"):
+                # SSL model — use encode() + classification head if available
                 features = model.encode(x)
-                # Add a simple linear head if no classifier
-                logits = features  # Caller should have a classifier
+                if hasattr(model, "head") and isinstance(model.head, nn.Linear):
+                    logits = model.head(features)
+                else:
+                    logits = features  # Raw features (caller must handle)
             else:
                 logits = model(x)
             all_logits.append(logits)

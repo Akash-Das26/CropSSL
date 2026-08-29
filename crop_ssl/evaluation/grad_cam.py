@@ -44,29 +44,45 @@ class GradCAM:
 
     def _find_last_attention_layer(self) -> nn.Module:
         """Find the last transformer block's attention layer."""
+        last_attn = None
+        last_linear = None
+
         # Try common ViT patterns
         for name, module in self.model.named_modules():
             if "blocks" in name and "attn" in name and "proj" in name:
                 last_attn = module
-        if "last_attn" in dir():
-            return last_attn
-
-        # Fallback: last linear layer before norm
-        for name, module in self.model.named_modules():
             if isinstance(module, nn.Linear):
                 last_linear = module
-        return last_linear
+
+        if last_attn is not None:
+            return last_attn
+        if last_linear is not None:
+            return last_linear
+
+        raise RuntimeError(
+            "Could not find a target layer for GradCAM. "
+            "Please provide target_layer explicitly."
+        )
 
     def _register_hooks(self):
         """Register forward and backward hooks."""
+        self._hooks = []
+
         def forward_hook(module, input, output):
             self.activations = output.detach()
 
         def backward_hook(module, grad_input, grad_output):
             self.gradients = grad_output[0].detach()
 
-        self.target_layer.register_forward_hook(forward_hook)
-        self.target_layer.register_full_backward_hook(backward_hook)
+        h1 = self.target_layer.register_forward_hook(forward_hook)
+        h2 = self.target_layer.register_full_backward_hook(backward_hook)
+        self._hooks = [h1, h2]
+
+    def remove_hooks(self):
+        """Remove all registered hooks."""
+        for h in self._hooks:
+            h.remove()
+        self._hooks = []
 
     def generate(
         self,
