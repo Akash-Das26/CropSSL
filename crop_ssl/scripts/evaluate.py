@@ -173,11 +173,13 @@ def main():
     parser.add_argument("--backbone", type=str, default="vit_base")
     parser.add_argument(
         "--source_dataset", type=str, default="plantvillage",
-        choices=["plantvillage", "plantdoc", "rice_leaf", "coffee_leaf"],
+        choices=["plantvillage", "plantdoc", "rice_leaf", "coffee_leaf",
+                 "plant_pathology", "icassava_2019", "new_plant_diseases", "cassava_leaf"],
     )
     parser.add_argument(
         "--target_dataset", type=str, default="plantdoc",
-        choices=["plantvillage", "plantdoc", "rice_leaf", "coffee_leaf"],
+        choices=["plantvillage", "plantdoc", "rice_leaf", "coffee_leaf",
+                 "plant_pathology", "icassava_2019", "new_plant_diseases", "cassava_leaf"],
     )
     parser.add_argument("--data_root", type=str, default="./data")
     parser.add_argument(
@@ -215,6 +217,8 @@ def main():
     from crop_ssl.data.datasets import (
         PlantVillageDataset, PlantDocDataset,
         RiceLeafDataset, CoffeeLeafDataset,
+        PlantPathologyDataset, ICassava2019Dataset,
+        NewPlantDiseasesDataset, CassavaLeafDataset,
     )
 
     dataset_map = {
@@ -222,15 +226,22 @@ def main():
         "plantdoc": PlantDocDataset,
         "rice_leaf": RiceLeafDataset,
         "coffee_leaf": CoffeeLeafDataset,
+        "plant_pathology": PlantPathologyDataset,
+        "icassava_2019": ICassava2019Dataset,
+        "new_plant_diseases": NewPlantDiseasesDataset,
+        "cassava_leaf": CassavaLeafDataset,
     }
+
+    # Only PlantVillageDataset supports download=True
+    download_datasets = {"plantvillage"}
 
     source_dataset = dataset_map[args.source_dataset](
         root=args.data_root, split="train", transform=train_transform,
-        **({"download": True} if args.source_dataset == "plantvillage" else {}),
+        **({"download": True} if args.source_dataset in download_datasets else {}),
     )
     target_dataset = dataset_map[args.target_dataset](
         root=args.data_root, split="test", transform=test_transform,
-        **({"download": True} if args.target_dataset == "plantvillage" else {}),
+        **({"download": True} if args.target_dataset in download_datasets else {}),
     )
 
     num_classes = max(source_dataset.num_classes, target_dataset.num_classes)

@@ -484,7 +484,11 @@ with tab4:
 
     st.markdown("### Adaptation Recovery")
 
-    import pandas as pd
+    try:
+        import pandas as pd
+    except ImportError:
+        st.error("pandas not installed. Install with: pip install pandas")
+        st.stop()
     chart_data = pd.DataFrame({
         "Method": ["No Adapt", "Linear", "LoRA", "ProtoNet", "MAML"],
         "Accuracy": [71.8, 81.2, 85.7, 88.3, 89.1],

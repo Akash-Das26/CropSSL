@@ -101,7 +101,7 @@ class ExperimentConfig:
         default_factory=DomainAdaptationConfig
     )
     train: TrainConfig = field(default_factory=TrainConfig)
-    eval: EvalConfig = field(default_factory=EvalConfig)
+    evaluation: EvalConfig = field(default_factory=EvalConfig)
 
     def to_dict(self) -> dict:
         """Convert to nested dictionary."""
@@ -116,7 +116,7 @@ class ExperimentConfig:
         fs_cfg = FewShotConfig(**d.get("few_shot", {}))
         da_cfg = DomainAdaptationConfig(**d.get("domain_adaptation", {}))
         train_cfg = TrainConfig(**d.get("train", {}))
-        eval_cfg = EvalConfig(**d.get("eval", {}))
+        eval_cfg = EvalConfig(**d.get("eval", d.get("evaluation", {})))
 
         return cls(
             name=d.get("name", "cropssl"),
@@ -129,7 +129,7 @@ class ExperimentConfig:
             few_shot=fs_cfg,
             domain_adaptation=da_cfg,
             train=train_cfg,
-            eval=eval_cfg,
+            evaluation=eval_cfg,
         )
 
 

@@ -31,7 +31,6 @@ from crop_ssl.utils.reproducibility import set_seed
 
 SSL_METHODS = ["dinov2", "moco_v3", "simclr", "mae"]
 ADAPTATION_METHODS = ["linear", "lora", "prototypical"]
-DATASETS = ["plantvillage", "plantdoc", "rice_leaf", "coffee_leaf"]
 BACKBONES = {"vit_small": 384, "vit_base": 768, "vit_large": 1024}
 
 

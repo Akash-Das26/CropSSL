@@ -78,11 +78,19 @@ class CassavaLeafDataset(Dataset):
             print("CassavaLeaf download failed. Creating synthetic dataset...")
             self._create_synthetic()
 
-        # Load labels from CSV if available
-        labels_file = self.root / "cassava-leaf-disease" / "train.csv"
+        # Load labels from CSV if available (check multiple paths)
         self.samples = []
+        labels_file = None
+        for csv_candidate in [
+            self.root / "cassava-leaf-disease" / "train.csv",
+            self.root / "cassava-leaf-disease-classification" / "train.csv",
+            self.root / "cassava" / "train.csv",
+        ]:
+            if csv_candidate.exists():
+                labels_file = csv_candidate
+                break
 
-        if labels_file.exists():
+        if labels_file is not None:
             import csv
             with open(labels_file) as f:
                 reader = csv.DictReader(f)
