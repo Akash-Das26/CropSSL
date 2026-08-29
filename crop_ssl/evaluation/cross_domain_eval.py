@@ -112,11 +112,11 @@ class CrossDomainEvaluator:
             source_accuracy=source_results["top_1_acc"],
             target_accuracy=target_results["top_1_acc"],
             source_per_class={
-                k: v["accuracy"] if "accuracy" in v else v["f1"]
+                k: v.get("accuracy", v["f1"])
                 for k, v in source_results["per_class_metrics"].items()
             },
             target_per_class={
-                k: v["accuracy"] if "accuracy" in v else v["f1"]
+                k: v.get("accuracy", v["f1"])
                 for k, v in target_results["per_class_metrics"].items()
             },
         )

@@ -211,12 +211,6 @@ def main():
     test_transform = get_test_transform(args.image_size)
 
     print(f"Loading source: {args.source_dataset}...")
-    source_dataset_class = {
-        "plantvillage": "PlantVillageDataset",
-        "plantdoc": "PlantDocDataset",
-        "rice_leaf": "RiceLeafDataset",
-        "coffee_leaf": "CoffeeLeafDataset",
-    }[args.source_dataset]
 
     from crop_ssl.data.datasets import (
         PlantVillageDataset, PlantDocDataset,

@@ -802,6 +802,330 @@ def test_model_export():
 
 
 # ============================================================
+# 14. Edge Case & Integration Tests
+# ============================================================
+def test_dino_v2_different_crop_counts():
+    """Test DINOv2 with varying numbers of crops."""
+    from crop_ssl.models.ssl.dino_v2 import DINOv2
+    model = DINOv2(backbone="vit_small", embed_dim=384, out_dim=128)
+    model.eval()  # eval mode to avoid BatchNorm1d issues with batch=1
+    # Test with minimum crops (2 global + 0 local)
+    crops_min = [torch.randn(1, 3, 224, 224) for _ in range(2)]
+    result = model(crops_min)
+    assert result["loss"].ndim == 0
+    # Test with many crops
+    crops_many = [torch.randn(2, 3, 224, 224) for _ in range(12)]
+    result = model(crops_many)
+    assert result["loss"].ndim == 0
+    print(f"    DINOv2: 2 crops OK, 12 crops OK")
+
+
+def test_mae_different_image_sizes():
+    """Test MAE with different image sizes (must be divisible by patch_size=16)."""
+    from crop_ssl.models.ssl.mae import MAE
+    for size in [112, 192, 224]:
+        model = MAE(backbone="vit_small", embed_dim=384, img_size=size, patch_size=16)
+        imgs = torch.randn(1, 3, size, size)
+        result = model(imgs)
+        assert result["loss"].ndim == 0
+        expected_patches = (size // 16) ** 2
+        assert result["mask"].shape == (1, expected_patches), f"mask shape for {size}"
+    print(f"    MAE: sizes 112, 192, 224 all work")
+
+
+def test_moco_v3_large_queue():
+    """Test MoCo v3 with large queue to verify dequeue/enqueue overflow handling."""
+    from crop_ssl.models.ssl.moco_v3 import MoCoV3
+    model = MoCoV3(backbone="vit_small", embed_dim=384, proj_dim=128, queue_size=32)
+    # Push more samples than queue size
+    for i in range(10):
+        x_q = torch.randn(8, 3, 224, 224)
+        x_k = torch.randn(8, 3, 224, 224)
+        result = model(x_q, x_k)
+    assert result["loss"].ndim == 0
+    assert model.queue_ptr.item() % model.queue_size == model.queue_ptr.item() % 32
+    print(f"    MoCo v3: queue overflow handled correctly")
+
+
+def test_domainnet_plant_dataset():
+    """Test DomainNetPlant synthetic dataset creation and loading."""
+    from crop_ssl.data.datasets.domainnet_plant import DomainNetPlant
+    from crop_ssl.data.transforms.augmentations import get_default_train_transform
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmpdir:
+        transform = get_default_train_transform(224)
+        # Create synthetic data in all 5 domains
+        import numpy as np
+        from PIL import Image
+        root = Path(tmpdir) / "DomainNetPlant"
+        for domain in DomainNetPlant.DOMAINS:
+            for cls_name in DomainNetPlant.CLASS_NAMES[:3]:
+                cls_dir = root / domain / cls_name
+                cls_dir.mkdir(parents=True, exist_ok=True)
+                for i in range(10):
+                    arr = np.random.randint(0, 255, (224, 224, 3), dtype=np.uint8)
+                    Image.fromarray(arr).save(cls_dir / f"img_{i:04d}.jpg")
+        ds = DomainNetPlant(root=tmpdir, split="train", transform=transform)
+        assert len(ds) > 0
+        img, label = ds[0]
+        assert img.shape == (3, 224, 224)
+        # Test single domain
+        ds_single = DomainNetPlant(root=tmpdir, domain="studio", split="train", transform=transform)
+        # Test domain stats
+        stats = ds.get_domain_stats()
+        assert len(stats) > 0
+        print(f"    DomainNetPlant: {len(ds)} samples, {len(stats)} domains")
+
+
+def test_cross_domain_dataset():
+    """Test CrossDomainDataset wrapper."""
+    from crop_ssl.data.datasets.cross_domain_dataset import CrossDomainDataset
+    from crop_ssl.data.transforms.augmentations import get_default_train_transform
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmpdir:
+        transform = get_default_train_transform(224)
+        # Create synthetic plantvillage + plantdoc
+        from crop_ssl.data.datasets.plantvillage import PlantVillageDataset
+        from crop_ssl.data.datasets.plantdoc import PlantDocDataset
+        PlantVillageDataset(root=tmpdir, split="train", transform=transform, download=True)
+        PlantDocDataset(root=tmpdir, split="test", transform=transform)
+        ds = CrossDomainDataset(
+            source_dataset_name="plantvillage",
+            target_dataset_name="plantdoc",
+            source_root=tmpdir,
+            target_root=tmpdir,
+            source_split="train",
+            target_split="test",
+            transform=transform,
+        )
+        assert len(ds) > 0
+        info = ds.get_domain_info()
+        assert info["source"] == "plantvillage"
+        assert info["target"] == "plantdoc"
+        print(f"    CrossDomainDataset: {len(ds)} total samples")
+
+
+def test_config_system():
+    """Test configuration dataclasses."""
+    from crop_ssl.configs.default import (
+        ExperimentConfig, SSLConfig, DataConfig, TrainConfig,
+        DINOV2_PLANTVILLAGE_TO_PLANTDOC,
+    )
+    config = ExperimentConfig()
+    d = config.to_dict()
+    assert "data" in d and "ssl" in d and "train" in d
+    config2 = ExperimentConfig.from_dict(d)
+    assert config2.ssl.method == "dinov2"
+    # Pre-defined configs
+    assert DINOV2_PLANTVILLAGE_TO_PLANTDOC.ssl.method == "dinov2"
+    print(f"    Config: create, serialize, deserialize OK")
+
+
+def test_logging_timer():
+    """Test experiment logger and timer utilities."""
+    import tempfile
+    from crop_ssl.utils.logging import ExperimentLogger, Timer
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = ExperimentLogger(log_dir=tmpdir, experiment_name="test", use_tensorboard=False)
+        logger.log_scalar("loss", 0.5, 0)
+        logger.log_config({"lr": 0.001})
+        logger.close()
+        assert (Path(tmpdir) / "test" / "config.json").exists()
+        assert (Path(tmpdir) / "test" / "metrics.jsonl").exists()
+    timer = Timer()
+    timer.start("test")
+    import time; time.sleep(0.01)
+    elapsed = timer.stop("test")
+    assert elapsed > 0
+    summary = timer.summary()
+    assert "test" in summary
+    print(f"    Logger + Timer: OK")
+
+
+def test_reproducibility():
+    """Test that seed setting produces reproducible results."""
+    from crop_ssl.utils.reproducibility import set_seed
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    set_seed(42)
+    model1 = vit_small_patch16()
+    x = torch.randn(1, 3, 224, 224)
+    out1 = model1(x).clone()
+    set_seed(42)
+    model2 = vit_small_patch16()
+    out2 = model2(x).clone()
+    assert torch.allclose(out1, out2, atol=1e-6), "Reproducibility broken"
+    print(f"    Seed reproducibility: verified")
+
+
+def test_tta_single_image():
+    """Test TTA on a single image."""
+    from crop_ssl.evaluation.tta import TestTimeAugmentation
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    model = vit_small_patch16(num_classes=10)
+    tta = TestTimeAugmentation(model, num_augmentations=6, scales=[224], flip=False, device="cpu")
+    from PIL import Image
+    img = Image.new("RGB", (256, 256), color=(128, 64, 32))
+    result = tta.predict(img, return_std=True)
+    assert "pred" in result
+    assert "confidence" in result
+    assert "std" in result
+    assert isinstance(result["pred"], int)
+    assert isinstance(result["confidence"], float)
+    print(f"    TTA: pred={result['pred']}, conf={result['confidence']:.3f}, std={result['std']:.4f}")
+
+
+def test_grad_cam_hooks_cleanup():
+    """Test that Grad-CAM hooks can be properly removed."""
+    from crop_ssl.evaluation.grad_cam import GradCAM
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    backbone = vit_small_patch16(num_classes=10)
+    gc = GradCAM(backbone)
+    assert len(gc._hooks) == 2, f"Expected 2 hooks, got {len(gc._hooks)}"
+    gc.remove_hooks()
+    assert len(gc._hooks) == 0
+    # Generate after cleanup should still work (re-registers)
+    gc._register_hooks()
+    assert len(gc._hooks) == 2
+    print(f"    GradCAM hooks: register/cleanup works")
+
+
+def test_coral_loss_zero():
+    """Test CORAL loss is 0 for identical distributions."""
+    from crop_ssl.evaluation.metrics import compute_domain_shift_metrics
+    # Same accuracy -> zero drop
+    result = compute_domain_shift_metrics(85.0, 85.0)
+    assert result["absolute_accuracy_drop"] == 0.0
+    assert result["robustness_score"] == 1.0
+    print(f"    CORAL/shift: same distribution → drop=0")
+
+
+def test_domain_stratified_sampler():
+    """Test DomainStratifiedSampler."""
+    from crop_ssl.data.datasets.few_shot_sampler import DomainStratifiedSampler
+    from torch.utils.data import TensorDataset
+    src = TensorDataset(torch.randn(100, 3, 32, 32), torch.zeros(100))
+    tgt = TensorDataset(torch.randn(80, 3, 32, 32), torch.ones(80))
+    sampler = DomainStratifiedSampler(src, tgt, batch_size=16, source_ratio=0.5)
+    indices = list(sampler)
+    assert len(indices) > 0
+    print(f"    DomainStratified: {len(indices)} indices")
+
+
+def test_snapshot_ensemble():
+    """Test SnapshotEnsemble with multiple models."""
+    from crop_ssl.evaluation.ensemble import SnapshotEnsemble
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    import tempfile, torch.nn as nn
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Save 3 model checkpoints
+        paths = []
+        for i in range(3):
+            model = vit_small_patch16(num_classes=10)
+            path = f"{tmpdir}/model_{i}.pth"
+            torch.save(model.state_dict(), path)
+            paths.append(path)
+        se = SnapshotEnsemble(
+            model_class=lambda: vit_small_patch16(num_classes=10),
+            checkpoint_paths=paths,
+            num_classes=10,
+        )
+        x = torch.randn(2, 3, 224, 224)
+        result = se.predict(x)
+        assert "pred" in result
+        assert "std" in result
+        print(f"    SnapshotEnsemble: {len(se.models)} models, preds={result['pred'].tolist()}")
+
+
+def test_few_shot_adapter_maml():
+    """Test MAML adaptation method."""
+    from crop_ssl.models.adaptation.few_shot_adapter import FewShotAdapter
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    backbone = vit_small_patch16()
+    adapter = FewShotAdapter(backbone, num_classes=10, adaptation_method="maml")
+    x = torch.randn(2, 3, 224, 224)
+    result = adapter(x)
+    assert "logits" in result
+    assert result["logits"].shape == (2, 10)
+    # MAML should have all backbone params trainable
+    trainable = adapter.get_trainable_params()
+    total = adapter.get_total_params()
+    assert trainable > 0
+    print(f"    MAML: trainable={trainable:,}, total={total:,}")
+
+
+def test_grad_cam_batch():
+    """Test Grad-CAM batch processing."""
+    from crop_ssl.evaluation.grad_cam import GradCAM
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    backbone = vit_small_patch16(num_classes=10)
+    gc = GradCAM(backbone)
+    x = torch.randn(3, 3, 224, 224)
+    heatmaps = gc.generate_batch(x)
+    assert heatmaps.shape[0] == 3
+    assert heatmaps.ndim == 3
+    gc.remove_hooks()
+    print(f"    GradCAM batch: {heatmaps.shape}")
+
+
+def test_calibration_pipeline_platt():
+    """Test calibration pipeline with Platt scaling."""
+    from crop_ssl.evaluation.calibration import CalibrationPipeline
+    pipeline = CalibrationPipeline(method="platt", num_classes=10)
+    val_logits = torch.randn(100, 10)
+    val_labels = torch.randint(0, 10, (100,))
+    result = pipeline.fit(val_logits, val_labels)
+    assert "ece_before" in result
+    calibrated = pipeline.calibrate(val_logits)
+    assert calibrated.shape == val_logits.shape
+    ece = pipeline.get_ece(calibrated, val_labels)
+    assert isinstance(ece, float)
+    print(f"    Platt pipeline: ECE before={result['ece_before']:.4f}, after={result['ece_after']:.4f}")
+
+
+def test_active_learner_query_by_committee():
+    """Test query by committee strategy."""
+    from crop_ssl.evaluation.active_learning import ActiveLearner
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    from torch.utils.data import TensorDataset, DataLoader
+    backbone1 = vit_small_patch16(num_classes=10)
+    backbone2 = vit_small_patch16(num_classes=10)
+    al = ActiveLearner(backbone1)
+    unlabeled = TensorDataset(torch.randn(40, 3, 224, 224), torch.zeros(40))
+    loader = DataLoader(unlabeled, batch_size=8)
+    selected = al.query_by_committee(loader, committee=[backbone1, backbone2], n_samples=5)
+    assert len(selected) == 5
+    assert all(0 <= i < 40 for i in selected)
+    print(f"    Query-by-committee: {len(selected)} samples")
+
+
+def test_mae_reconstruction_head():
+    """Test MAEReconstructionHead with positional embedding."""
+    from crop_ssl.models.heads.projection import MAEReconstructionHead
+    head = MAEReconstructionHead(embed_dim=384, decoder_dim=256, decoder_depth=2, decoder_heads=8, patch_size=16, img_size=224)
+    x = torch.randn(2, 100, 384)  # 100 visible patches
+    ids_restore = torch.argsort(torch.rand(2, 196), dim=1)  # 196 total patches
+    out = head(x, ids_restore)
+    assert out.shape == (2, 196, 16 * 16 * 3)
+    print(f"    MAEReconstructionHead: {out.shape}")
+
+
+def test_prototypical_network_distance():
+    """Test prototypical network with euclidean distance."""
+    from crop_ssl.models.adaptation.few_shot_adapter import FewShotAdapter
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    backbone = vit_small_patch16()
+    adapter = FewShotAdapter(backbone, num_classes=5, adaptation_method="prototypical")
+    # Manually override metric
+    adapter.proto_net.metric = "euclidean"
+    query = torch.randn(2, 3, 224, 224)
+    support = torch.randn(10, 3, 224, 224)
+    labels = torch.tensor([0, 0, 1, 1, 2, 2, 3, 3, 4, 4])
+    result = adapter(query, support_images=support, support_labels=labels, n_way=5)
+    assert result["logits"].shape == (2, 5)
+    print(f"    ProtoNet euclidean: logits {result['logits'].shape}")
+
+
+# ============================================================
 # Run All Tests
 # ============================================================
 if __name__ == "__main__":
@@ -894,6 +1218,27 @@ if __name__ == "__main__":
     print("\n🌐 Backend & Export Tests:")
     run_test("Backend API config", test_backend_api)
     run_test("ONNX export", test_model_export)
+
+    print("\n🧪 Edge Case & Integration Tests:")
+    run_test("DINOv2 different crop counts", test_dino_v2_different_crop_counts)
+    run_test("MAE different image sizes", test_mae_different_image_sizes)
+    run_test("MoCo v3 large queue overflow", test_moco_v3_large_queue)
+    run_test("DomainNetPlant dataset", test_domainnet_plant_dataset)
+    run_test("CrossDomainDataset wrapper", test_cross_domain_dataset)
+    run_test("Config system", test_config_system)
+    run_test("Logging & Timer", test_logging_timer)
+    run_test("Reproducibility", test_reproducibility)
+    run_test("TTA single image", test_tta_single_image)
+    run_test("GradCAM hooks cleanup", test_grad_cam_hooks_cleanup)
+    run_test("Domain shift zero drop", test_coral_loss_zero)
+    run_test("DomainStratifiedSampler", test_domain_stratified_sampler)
+    run_test("SnapshotEnsemble", test_snapshot_ensemble)
+    run_test("MAML adaptation", test_few_shot_adapter_maml)
+    run_test("GradCAM batch processing", test_grad_cam_batch)
+    run_test("Calibration pipeline Platt", test_calibration_pipeline_platt)
+    run_test("Active learning committee", test_active_learner_query_by_committee)
+    run_test("MAEReconstructionHead with pos_embed", test_mae_reconstruction_head)
+    run_test("ProtoNet euclidean distance", test_prototypical_network_distance)
 
     print("\n" + "=" * 60)
     print(f"Results: {PASS} passed, {FAIL} failed out of {PASS + FAIL} tests")

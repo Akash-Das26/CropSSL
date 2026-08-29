@@ -199,6 +199,9 @@ class MAEReconstructionHead(nn.Module):
             index=ids_restore.unsqueeze(-1).expand(-1, -1, D),
         )
 
+        # Add positional embedding
+        x = x + self.decoder_pos_embed[:, :N_total, :]
+
         x = self.decoder_norm(x)
         x = self.decoder_pred(x)
 

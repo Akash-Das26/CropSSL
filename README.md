@@ -5,10 +5,10 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.8+-blue.svg" alt="Python">
   <img src="https://img.shields.io/badge/PyTorch-2.0+-ee4c2c.svg" alt="PyTorch">
-  <img src="https://img.shields.io/badge/Tests-50%20Passing-brightgreen.svg" alt="Tests">
+  <img src="https://img.shields.io/badge/Tests-81%20Passing-brightgreen.svg" alt="Tests">
   <img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License">
   <img src="https://img.shields.io/badge/Models-4%20SSL-brightgreen.svg" alt="SSL Methods">
-  <img src="https://img.shields.io/badge/Datasets-5-blue.svg" alt="Datasets">
+  <img src="https://img.shields.io/badge/Datasets-7-blue.svg" alt="Datasets">
 </p>
 
 ---
@@ -102,6 +102,8 @@ Input Images
 | RiceLeaf | Agricultural field | ~5,000+ | 7 | Kaggle |
 | CoffeeLeaf | Agricultural field | ~5,000+ | 5 | Research publications |
 | DomainNet-Plant | Multi-domain | Custom | 12 | Synthetic (5 domains) |
+| NewPlantDiseases | Augmented lab | 87,848 | 38 | Kaggle (augmented PlantVillage) |
+| CassavaLeaf | Agricultural field | 21,397 | 5 | Kaggle (African food crop) |
 
 ---
 
@@ -109,7 +111,7 @@ Input Images
 
 ### 4.1 Test Suite Validation
 
-All 50 unit and integration tests pass across the following modules:
+All 81 unit and integration tests pass across the following modules:
 
 | Module | Tests | Status |
 |--------|-------|--------|
@@ -121,6 +123,10 @@ All 50 unit and integration tests pass across the following modules:
 | Data Transforms & Samplers | 6 | All passing |
 | Factory & Utilities | 2 | All passing |
 | Advanced Features (GradCAM, TTA, Ensemble, Calibration, AL) | 10 | All passing |
+| Training Utilities (EarlyStopping, EMA, CutMix, MixUp, LRScheduler) | 7 | All passing |
+| New Dataset Loaders (NewPlantDiseases, CassavaLeaf, DomainNet) | 3 | All passing |
+| Backend API & Export | 2 | All passing |
+| Edge Cases & Integration (configs, logging, reproducibility, etc.) | 19 | All passing |
 
 ### 4.2 Parameter Efficiency
 
@@ -308,7 +314,7 @@ CropSSL/
       evaluate.py         # Cross-domain evaluation CLI
       download_data.py    # Dataset preparation CLI
       compare_methods.py  # Benchmarking script
-    tests/                # 62 unit and integration tests
+    tests/                # 81 unit and integration tests
     utils/
       training.py         # EarlyStopping, EMA, LRFinder, CutMix, MixUp
       export.py           # ONNX export, model summary
