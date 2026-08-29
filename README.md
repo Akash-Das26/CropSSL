@@ -5,7 +5,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.8+-blue.svg" alt="Python">
   <img src="https://img.shields.io/badge/PyTorch-2.0+-ee4c2c.svg" alt="PyTorch">
-  <img src="https://img.shields.io/badge/Tests-40%20Passing-brightgreen.svg" alt="Tests">
+  <img src="https://img.shields.io/badge/Tests-50%20Passing-brightgreen.svg" alt="Tests">
   <img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License">
 </p>
 
@@ -67,7 +67,7 @@ CropSSL is a production-grade research framework that systematically evaluates *
 
 ## 📊 Test Results & Benchmarking
 
-### ✅ Full Test Suite: 40/40 Passing
+### ✅ Full Test Suite: 50/50 Passing
 
 All modules have been validated through comprehensive unit and integration tests:
 
@@ -107,6 +107,13 @@ All modules have been validated through comprehensive unit and integration tests
 
 🏭 Factory & Utilities Tests
   ✅ SSL model factory (4 methods)        ✅ Checkpoint save/load
+
+🚀 Advanced Features Tests
+  ✅ Grad-CAM visualization                ✅ Temperature scaling calibration
+  ✅ Platt scaling calibration             ✅ Calibration pipeline
+  ✅ Model ensemble                       ✅ Adaptive ensemble
+  ✅ Active learning (uncertainty)         ✅ Active learning (margin)
+  ✅ Feature extraction                    ✅ t-SNE embedding
 ```
 
 ---
@@ -207,7 +214,7 @@ CropSSL/
 │   ├── evaluation/             # Metrics + cross-domain evaluator
 │   ├── configs/                # Experiment configurations
 │   ├── scripts/                # Train + evaluate CLI scripts
-│   ├── tests/                  # 40 comprehensive tests
+│   ├── tests/                  # 50 comprehensive tests
 │   └── utils/                  # Logging, checkpointing, visualization
 ├── requirements.txt
 ├── README.md
@@ -230,7 +237,7 @@ pip install -r requirements.txt
 
 ```bash
 python crop_ssl/tests/test_all.py
-# Output: 40 passed, 0 failed
+# Output: 50 passed, 0 failed
 ```
 
 ### SSL Pre-training
@@ -329,6 +336,48 @@ Pre-defined configs available:
 
 ---
 
+## 🚀 Advanced Features
+
+### Grad-CAM Disease Localization
+```python
+from crop_ssl.evaluation.grad_cam import GradCAM
+grad_cam = GradCAM(model)
+heatmap = grad_cam.generate(image_tensor)
+grad_cam.save_visualization(image_tensor, "gradcam.png")
+```
+
+### Test-Time Augmentation (TTA)
+```python
+from crop_ssl.evaluation.tta import TestTimeAugmentation
+tta = TestTimeAugmentation(model, num_augmentations=10)
+result = tta.predict(pil_image, return_std=True)
+# result['confidence'], result['std'] for uncertainty
+```
+
+### Model Ensembling
+```python
+from crop_ssl.evaluation.ensemble import ModelEnsemble
+ensemble = ModelEnsemble([(model_a, 0.5), (model_b, 0.5)], num_classes=10)
+result = ensemble(x, return_individual=True)
+```
+
+### Confidence Calibration
+```python
+from crop_ssl.evaluation.calibration import CalibrationPipeline
+cal = CalibrationPipeline(method="temperature", num_classes=10)
+cal.fit(val_logits, val_labels)  # Learn temperature
+calibrated = cal.calibrate(test_logits)  # Apply calibration
+```
+
+### Active Learning
+```python
+from crop_ssl.evaluation.active_learning import ActiveLearner
+al = ActiveLearner(model)
+selected = al.uncertainty_sampling(unlabeled_loader, n_samples=100)
+```
+
+---
+
 ## 📋 Datasets
 
 | Dataset | Domain | Images | Classes | Key Challenge |
@@ -358,7 +407,7 @@ Pre-defined configs available:
 ## 🤝 Contributing
 
 1. Fork → Branch → Test → PR
-2. All changes must pass the 40-test suite
+2. All changes must pass the 50-test suite
 3. New features require corresponding tests
 
 ---

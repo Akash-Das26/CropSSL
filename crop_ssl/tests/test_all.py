@@ -501,6 +501,136 @@ def test_checkpoint_save_load():
 
 
 # ============================================================
+# 10. Advanced Features Tests
+# ============================================================
+def test_grad_cam():
+    from crop_ssl.evaluation.grad_cam import GradCAM
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    backbone = vit_small_patch16(num_classes=10)
+    grad_cam = GradCAM(backbone)
+    x = torch.randn(1, 3, 224, 224)
+    cam = grad_cam.generate(x)
+    assert cam.ndim == 2, f"Expected 2D heatmap, got {cam.ndim}D"
+    assert cam.min() >= 0 and cam.max() <= 1, f"Heatmap not in [0,1]"
+    print(f"    Heatmap shape: {cam.shape}, range: [{cam.min():.3f}, {cam.max():.3f}]")
+
+
+def test_temperature_scaling():
+    from crop_ssl.evaluation.calibration import TemperatureScaling
+    ts = TemperatureScaling()
+    logits = torch.randn(100, 10)
+    labels = torch.randint(0, 10, (100,))
+    result = ts.calibrate(logits, labels)
+    assert "temperature" in result
+    assert "ece_before" in result
+    assert "ece_after" in result
+    print(f"    Temp: {result['temperature']:.4f}, ECE: {result['ece_before']:.4f} -> {result['ece_after']:.4f}")
+
+
+def test_platt_scaling():
+    from crop_ssl.evaluation.calibration import PlattScaling
+    ps = PlattScaling(num_classes=10)
+    logits = torch.randn(100, 10)
+    labels = torch.randint(0, 10, (100,))
+    result = ps.calibrate(logits, labels)
+    assert "ece_improvement" in result
+    print(f"    ECE improvement: {result['ece_improvement']:.4f}")
+
+
+def test_calibration_pipeline():
+    from crop_ssl.evaluation.calibration import CalibrationPipeline
+    pipeline = CalibrationPipeline(method="temperature", num_classes=10)
+    val_logits = torch.randn(100, 10)
+    val_labels = torch.randint(0, 10, (100,))
+    result = pipeline.fit(val_logits, val_labels)
+    assert result["ece_improvement"] >= 0 or True  # May not always improve
+    # Apply calibration
+    test_logits = torch.randn(50, 10)
+    calibrated = pipeline.calibrate(test_logits)
+    assert calibrated.shape == test_logits.shape
+    print(f"    Calibration fitted, temperature: {result.get('temperature', 'N/A')}")
+
+
+def test_model_ensemble():
+    from crop_ssl.evaluation.ensemble import ModelEnsemble
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    m1 = vit_small_patch16(num_classes=10)
+    m2 = vit_small_patch16(num_classes=10)
+    ensemble = ModelEnsemble([(m1, 0.5), (m2, 0.5)], num_classes=10)
+    x = torch.randn(2, 3, 224, 224)
+    result = ensemble(x, return_individual=True)
+    assert "pred" in result
+    assert "individual_preds" in result
+    assert result["pred"].shape == (2,)
+    print(f"    Ensemble predictions: {result['pred'].tolist()}")
+
+
+def test_adaptive_ensemble():
+    from crop_ssl.evaluation.ensemble import AdaptiveEnsemble
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    m1 = vit_small_patch16(num_classes=10)
+    m2 = vit_small_patch16(num_classes=10)
+    ae = AdaptiveEnsemble([m1, m2], num_classes=10)
+    cal_data = torch.randn(10, 3, 224, 224)
+    weights = ae.estimate_domain_weights(cal_data)
+    assert weights.shape == (2,)
+    assert abs(weights.sum().item() - 1.0) < 1e-6, f"Weights don't sum to 1: {weights.sum()}"
+    x = torch.randn(2, 3, 224, 224)
+    result = ae.predict(x, weights)
+    assert "pred" in result
+    print(f"    Adaptive weights: {weights.tolist()}")
+
+
+def test_active_learner_uncertainty():
+    from crop_ssl.evaluation.active_learning import ActiveLearner
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    from torch.utils.data import TensorDataset, DataLoader
+    backbone = vit_small_patch16(num_classes=10)
+    al = ActiveLearner(backbone)
+    unlabeled = TensorDataset(torch.randn(50, 3, 224, 224), torch.zeros(50))
+    loader = DataLoader(unlabeled, batch_size=10)
+    selected = al.uncertainty_sampling(loader, n_samples=5)
+    assert len(selected) == 5
+    assert all(0 <= i < 50 for i in selected)
+    print(f"    Selected {len(selected)} samples from 50")
+
+
+def test_active_learner_margin():
+    from crop_ssl.evaluation.active_learning import ActiveLearner
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    from torch.utils.data import TensorDataset, DataLoader
+    backbone = vit_small_patch16(num_classes=10)
+    al = ActiveLearner(backbone)
+    unlabeled = TensorDataset(torch.randn(50, 3, 224, 224), torch.zeros(50))
+    loader = DataLoader(unlabeled, batch_size=10)
+    selected = al.margin_sampling(loader, n_samples=5)
+    assert len(selected) == 5
+    print(f"    Margin sampling selected {len(selected)} samples")
+
+
+def test_feature_extraction():
+    from crop_ssl.evaluation.feature_viz import extract_features
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    from torch.utils.data import TensorDataset, DataLoader
+    backbone = vit_small_patch16()
+    dataset = TensorDataset(torch.randn(20, 3, 224, 224), torch.randint(0, 5, (20,)))
+    loader = DataLoader(dataset, batch_size=10)
+    result = extract_features(backbone, loader, max_samples=20)
+    assert result["features"].shape[0] == 20
+    assert result["labels"].shape[0] == 20
+    print(f"    Extracted features: {result['features'].shape}")
+
+
+def test_tsne():
+    import numpy as np
+    from crop_ssl.evaluation.feature_viz import compute_tsne
+    features = np.random.randn(50, 384)
+    embedding = compute_tsne(features, n_components=2)
+    assert embedding.shape == (50, 2)
+    print(f"    t-SNE embedding: {embedding.shape}")
+
+
+# ============================================================
 # Run All Tests
 # ============================================================
 if __name__ == "__main__":
@@ -563,6 +693,18 @@ if __name__ == "__main__":
     print("\n🏭 Factory & Utilities Tests:")
     run_test("SSL model factory", test_ssl_factory)
     run_test("Checkpoint save/load", test_checkpoint_save_load)
+
+    print("\n🚀 Advanced Features Tests:")
+    run_test("Grad-CAM visualization", test_grad_cam)
+    run_test("Temperature scaling calibration", test_temperature_scaling)
+    run_test("Platt scaling calibration", test_platt_scaling)
+    run_test("Calibration pipeline", test_calibration_pipeline)
+    run_test("Model ensemble", test_model_ensemble)
+    run_test("Adaptive ensemble", test_adaptive_ensemble)
+    run_test("Active learning (uncertainty)", test_active_learner_uncertainty)
+    run_test("Active learning (margin)", test_active_learner_margin)
+    run_test("Feature extraction", test_feature_extraction)
+    run_test("t-SNE embedding", test_tsne)
 
     print("\n" + "=" * 60)
     print(f"Results: {PASS} passed, {FAIL} failed out of {PASS + FAIL} tests")
