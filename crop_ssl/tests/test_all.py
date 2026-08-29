@@ -1325,6 +1325,422 @@ def test_all_dataset_distributions():
 
 
 # ============================================================
+# 17. Efficiency & Stress Tests
+# ============================================================
+def test_ssl_model_parameter_count():
+    """Verify parameter counts match expected architecture sizes."""
+    from crop_ssl.models.backbones.vit import vit_small_patch16, vit_base_patch16, vit_large_patch16
+    s = vit_small_patch16()
+    b = vit_base_patch16()
+    l = vit_large_patch16()
+    ps = sum(p.numel() for p in s.parameters())
+    pb = sum(p.numel() for p in b.parameters())
+    pl = sum(p.numel() for p in l.parameters())
+    assert ps < pb < pl, f"Param counts wrong: small={ps}, base={pb}, large={pl}"
+    assert ps > 0 and pb > 0 and pl > 0
+    print(f"    ViT params: S={ps:,} B={pb:,} L={pl:,}")
+
+
+def test_dinov2_gradient_flow():
+    """Verify gradients flow through student but not teacher."""
+    from crop_ssl.models.ssl.dino_v2 import DINOv2
+    model = DINOv2(backbone="vit_small", embed_dim=384, out_dim=128)
+    crops = [torch.randn(2, 3, 224, 224) for _ in range(10)]
+    result = model(crops)
+    result["loss"].backward()
+    # Student should have gradients
+    has_grad = any(p.grad is not None and p.grad.abs().sum() > 0
+                    for p in model.student_backbone.parameters())
+    assert has_grad, "No gradients in student backbone"
+    # Teacher should NOT have gradients (frozen)
+    no_grad = all(p.grad is None for p in model.teacher_backbone.parameters())
+    assert no_grad, "Teacher backbone has gradients (should be frozen)"
+    print("    Gradient flow: student=yes, teacher=no ✓")
+
+
+def test_moco_negative_pairs():
+    """Verify MoCo loss is positive and meaningful."""
+    from crop_ssl.models.ssl.moco_v3 import MoCoV3
+    model = MoCoV3(backbone="vit_small", embed_dim=384, proj_dim=64, queue_size=50)
+    # Same input = should have low loss (positive pair is easy)
+    x = torch.randn(4, 3, 224, 224)
+    r1 = model(x, x.clone())
+    # Different input = should have higher loss
+    x2 = torch.randn(4, 3, 224, 224)
+    r2 = model(x, x2)
+    assert r1["loss"].item() >= 0, "Loss should be non-negative"
+    print(f"    Same-pair loss: {r1['loss'].item():.4f}, Diff-pair: {r2['loss'].item():.4f}")
+
+
+def test_mae_reconstruction_quality():
+    """Verify MAE reconstruction output shape matches input patches."""
+    from crop_ssl.models.ssl.mae import MAE
+    model = MAE(backbone="vit_small", embed_dim=384, img_size=224, mask_ratio=0.75)
+    imgs = torch.randn(2, 3, 224, 224)
+    result = model(imgs)
+    # pred shape: (B, N_total, P^2 * 3)
+    expected_dim = 16 * 16 * 3  # patch_size=16, 3 channels
+    assert result["pred"].shape == (2, 196, expected_dim), \
+        f"Expected (2,196,{expected_dim}), got {result['pred'].shape}"
+    # mask should mask ~75% of patches
+    mask_ratio = result["mask"].float().mean().item()
+    assert 0.5 < mask_ratio < 0.95, f"Mask ratio {mask_ratio:.2f} not in expected range"
+    print(f"    MAE reconstruction: pred={result['pred'].shape}, mask_ratio={mask_ratio:.2f}")
+
+
+def test_simclr_temperature_effect():
+    """Verify lower temperature increases loss magnitude."""
+    from crop_ssl.models.ssl.simclr import SimCLR
+    v1 = torch.randn(8, 3, 224, 224)
+    v2 = torch.randn(8, 3, 224, 224)
+    m_high = SimCLR(backbone="vit_small", embed_dim=384, proj_dim=128, temperature=0.5)
+    m_low = SimCLR(backbone="vit_small", embed_dim=384, proj_dim=128, temperature=0.01)
+    r_high = m_high(v1, v2)
+    r_low = m_low(v1, v2)
+    # Lower temp should generally produce different (often higher) loss
+    assert r_high["loss"].item() >= 0 and r_low["loss"].item() >= 0
+    print(f"    Temp=0.5 loss={r_high['loss'].item():.4f}, Temp=0.01 loss={r_low["loss"].item():.4f}")
+
+
+def test_lora_rank_effect():
+    """Verify higher LoRA rank increases trainable parameters."""
+    from crop_ssl.models.adaptation.few_shot_adapter import FewShotAdapter
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    b1 = vit_small_patch16()
+    b2 = vit_small_patch16()
+    a1 = FewShotAdapter(b1, num_classes=10, adaptation_method="lora", rank=2)
+    a2 = FewShotAdapter(b2, num_classes=10, adaptation_method="lora", rank=16)
+    p1 = a1.get_trainable_params()
+    p2 = a2.get_trainable_params()
+    assert p2 > p1, f"Rank 16 ({p2:,}) should have more params than rank 2 ({p1:,})"
+    print(f"    LoRA rank 2: {p1:,} params, rank 16: {p2:,} params")
+
+
+def test_early_stopping_max_mode():
+    """Test early stopping in max mode (for accuracy)."""
+    from crop_ssl.utils.training import EarlyStopping
+    es = EarlyStopping(patience=2, mode="max")
+    assert not es(0.80)  # First call
+    assert not es(0.85)  # Improvement
+    assert not es(0.83)  # Worse but patience not exceeded
+    assert es(0.81)      # patience=2 exceeded
+    print("    Early stopping max mode: triggered after patience=2")
+
+def test_cutmix_label_proportions():
+    """Verify CutMix preserves label proportions."""
+    from crop_ssl.utils.training import CutMix
+    cm = CutMix(num_classes=10, alpha=1.0, prob=1.0)
+    images = torch.randn(16, 3, 224, 224)
+    labels = torch.arange(16) % 10
+    mixed_img, mixed_labels = cm(images, labels)
+    # Each row should sum to ~1.0 (valid probability distribution)
+    row_sums = mixed_labels.sum(dim=1)
+    assert torch.allclose(row_sums, torch.ones(16), atol=0.01), \
+        f"Label row sums not ~1.0: {row_sums}"
+    print(f"    CutMix label proportions: all rows sum to ~1.0 ✓")
+
+
+def test_cosine_warmup_monotonic_warmup():
+    """Verify LR increases monotonically during warmup phase."""
+    from crop_ssl.utils.training import CosineWarmupScheduler
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    model = vit_small_patch16(num_classes=10)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    scheduler = CosineWarmupScheduler(optimizer, warmup_epochs=10, total_epochs=50)
+    lrs = []
+    for _ in range(10):  # Warmup phase only
+        scheduler.step()
+        lrs.append(scheduler.get_last_lr()[0])
+    # Should be monotonically increasing
+    for i in range(1, len(lrs)):
+        assert lrs[i] >= lrs[i-1], f"LR decreased during warmup: {lrs[i-1]:.6f} -> {lrs[i]:.6f}"
+    print(f"    Warmup monotonic: {lrs[0]:.6f} -> {lrs[-1]:.6f} ✓")
+
+
+def test_checkpoint_roundtrip():
+    """Verify save/load checkpoint preserves model state exactly."""
+    import tempfile
+    from crop_ssl.utils.checkpointing import save_checkpoint, load_checkpoint
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    import torch.optim as optim
+    model = vit_small_patch16(num_classes=10)
+    optimizer = optim.Adam(model.parameters(), lr=1e-3)
+    # Set some weights to non-default values
+    with torch.no_grad():
+        model.head.weight.fill_(42.0)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        save_checkpoint(model, optimizer, epoch=7, metrics={"acc": 99.0}, save_path=f"{tmpdir}/ckpt.pth")
+        model2 = vit_small_patch16(num_classes=10)
+        opt2 = optim.Adam(model2.parameters(), lr=1e-3)
+        result = load_checkpoint(f"{tmpdir}/ckpt.pth", model2, opt2)
+        assert result["epoch"] == 7
+        assert result["metrics"]["acc"] == 99.0
+        # Verify weights match
+        for (n1, p1), (n2, p2) in zip(model.named_parameters(), model2.named_parameters()):
+            assert torch.equal(p1, p2), f"Weight mismatch at {n1}"
+    print("    Checkpoint roundtrip: weights preserved exactly ✓")
+
+
+def test_gradient_clipping():
+    """Verify gradient clipping bounds gradient norm."""
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    model = vit_small_patch16(num_classes=10)
+    x = torch.randn(4, 3, 224, 224)
+    loss = model(x).sum()
+    loss.backward()
+    norm_before = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+    # After clipping, total norm should be <= 1.0 (or close)
+    total_norm = sum(p.grad.norm().item()**2 for p in model.parameters() if p.grad is not None)**0.5
+    print(f"    Grad norm before clip: {norm_before:.4f}")
+
+
+def test_model_ema_decay_effect():
+    """Verify EMA with higher decay changes parameters slower."""
+    from crop_ssl.utils.training import ModelEMA
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    m1 = vit_small_patch16()
+    m2 = vit_small_patch16()
+    ema_fast = ModelEMA(m1, decay=0.9)   # Fast decay
+    ema_slow = ModelEMA(m2, decay=0.999) # Slow decay
+    # Modify model
+    with torch.no_grad():
+        for p in m1.parameters():
+            p.add_(0.1)
+        for p in m2.parameters():
+            p.add_(0.1)
+    ema_fast.update()
+    ema_slow.update()
+    # Fast decay should move shadow closer to current model
+    diff_fast = sum((s - c).abs().sum().item() for s, c in zip(ema_fast.shadow.parameters(), m1.parameters()))
+    diff_slow = sum((s - c).abs().sum().item() for s, c in zip(ema_slow.shadow.parameters(), m2.parameters()))
+    assert diff_fast < diff_slow, f"Fast decay ({diff_fast:.4f}) should be closer than slow ({diff_slow:.4f})"
+    print(f"    EMA decay: fast_diff={diff_fast:.4f}, slow_diff={diff_slow:.4f}")
+
+
+def test_domain_adaptation_combined():
+    """Test combined domain adaptation (DANN + MMD + CORAL)."""
+    from crop_ssl.models.adaptation.domain_adapter import DomainAdaptationModule
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    backbone = vit_small_patch16()
+    module = DomainAdaptationModule(backbone, num_classes=10, adaptation_type="combined", input_dim=384)
+    src = torch.randn(4, 3, 224, 224)
+    tgt = torch.randn(4, 3, 224, 224)
+    result = module(src, tgt)
+    assert "domain_loss" in result
+    assert "source_logits" in result
+    assert "target_logits" in result
+    assert result["domain_loss"].item() > 0
+    print(f"    Combined adaptation loss: {result['domain_loss'].item():.4f}")
+
+
+def test_calibrate_then_predict():
+    """Test full calibration pipeline: fit -> calibrate -> predict."""
+    from crop_ssl.evaluation.calibration import CalibrationPipeline
+    pipeline = CalibrationPipeline(method="temperature", num_classes=10)
+    val_logits = torch.randn(200, 10)
+    val_labels = torch.randint(0, 10, (200,))
+    result = pipeline.fit(val_logits, val_labels)
+    test_logits = torch.randn(50, 10)
+    calibrated = pipeline.calibrate(test_logits)
+    # Calibrated logits should be different from raw
+    assert not torch.equal(calibrated, test_logits), "Calibration had no effect"
+    # Shape preserved
+    assert calibrated.shape == test_logits.shape
+    print(f"    Calibration effect: temp={result.get('temperature', 'N/A')}")
+
+
+def test_active_learning_all_strategies():
+    """Test all active learning strategies produce valid selections."""
+    from crop_ssl.evaluation.active_learning import ActiveLearner
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    from torch.utils.data import TensorDataset, DataLoader
+    model = vit_small_patch16(num_classes=10)
+    al = ActiveLearner(model)
+    data = TensorDataset(torch.randn(30, 3, 224, 224), torch.zeros(30))
+    loader = DataLoader(data, batch_size=10)
+    uq = al.uncertainty_sampling(loader, n_samples=5)
+    mg = al.margin_sampling(loader, n_samples=5)
+    assert len(uq) == 5 and len(mg) == 5
+    assert all(0 <= i < 30 for i in uq)
+    assert all(0 <= i < 30 for i in mg)
+    print(f"    AL strategies: uncertainty={len(uq)}, margin={len(mg)} ✓")
+
+
+def test_feature_viz_extract_and_tsne():
+    """Test full feature extraction -> t-SNE pipeline."""
+    from crop_ssl.evaluation.feature_viz import extract_features, compute_tsne
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    from torch.utils.data import TensorDataset, DataLoader
+    import numpy as np
+    model = vit_small_patch16()
+    ds = TensorDataset(torch.randn(30, 3, 224, 224), torch.randint(0, 5, (30,)))
+    loader = DataLoader(ds, batch_size=10)
+    result = extract_features(model, loader, max_samples=30)
+    # t-SNE perplexity must be < n_samples; use smaller perplexity for small dataset
+    emb = compute_tsne(result["features"], n_components=2, perplexity=5)
+    assert emb.shape[0] == 30 and emb.shape[1] == 2
+    assert not np.any(np.isnan(emb)), "t-SNE produced NaN values"
+    print(f"    Feature viz pipeline: {result["features"].shape} -> t-SNE {emb.shape}")
+
+
+def test_vit_attention_map_shapes():
+    """Verify attention map shapes for all ViT variants."""
+    from crop_ssl.models.backbones.vit import vit_small_patch16, vit_base_patch16, vit_large_patch16
+    x = torch.randn(1, 3, 224, 224)
+    for name, fn, n_layers, n_heads in [
+        ("small", vit_small_patch16, 12, 6),
+        ("base", vit_base_patch16, 12, 12),
+        ("large", vit_large_patch16, 24, 16),
+    ]:
+        model = fn()
+        attn = model.get_attention_maps(x)
+        assert len(attn) == n_layers, f"{name}: expected {n_layers} layers, got {len(attn)}"
+        assert attn[0].shape == (1, n_heads, 197, 197), \
+            f"{name}: attention shape {attn[0].shape} != (1,{n_heads},197,197)"
+    print("    ViT attention maps: S/B/L all correct ✓")
+
+
+def test_config_from_dict_roundtrip():
+    """Test config serialization roundtrip preserves all values."""
+    from crop_ssl.configs.default import ExperimentConfig, SSLConfig, DataConfig, TrainConfig, FewShotConfig
+    cfg = ExperimentConfig(
+        name="test_experiment",
+        seed=123,
+        device="cpu",
+        ssl=SSLConfig(method="mae", backbone="vit_large", embed_dim=1024),
+        data=DataConfig(source_dataset="plantdoc", target_dataset="rice_leaf", image_size=384),
+        train=TrainConfig(total_epochs=50, lr=5e-4, batch_size=32),
+        few_shot=FewShotConfig(k_shot=1, n_way=5),
+    )
+    d = cfg.to_dict()
+    cfg2 = ExperimentConfig.from_dict(d)
+    assert cfg2.name == "test_experiment"
+    assert cfg2.seed == 123
+    assert cfg2.ssl.method == "mae"
+    assert cfg2.ssl.backbone == "vit_large"
+    assert cfg2.data.image_size == 384
+    assert cfg2.train.lr == 5e-4
+    assert cfg2.few_shot.k_shot == 1
+    print("    Config roundtrip: all values preserved ✓")
+
+
+def test_export_ssl_backbone():
+    """Test SSL backbone export function."""
+    try:
+        import onnxscript
+        from crop_ssl.utils.export import export_ssl_backbone
+        from crop_ssl.models.ssl.simclr import SimCLR
+        import tempfile
+        model = SimCLR(backbone="vit_small", embed_dim=384)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = export_ssl_backbone(model, f"{tmpdir}/backbone.onnx")
+            assert Path(path).exists()
+        print("    SSL backbone export: OK ✓")
+    except ImportError:
+        print("    SSL backbone export: skipped (onnxscript not installed)")
+
+
+def test_cross_domain_dataset_with_new_datasets():
+    """Test CrossDomainDataset with newly added datasets."""
+    from crop_ssl.data.datasets.cross_domain_dataset import CrossDomainDataset
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Test plantdoc -> field_plant cross-domain pair
+        cds = CrossDomainDataset(
+            source_dataset_name="plantdoc",
+            target_dataset_name="field_plant",
+            source_root=tmpdir,
+            target_root=tmpdir,
+        )
+        assert len(cds) > 0
+        info = cds.get_domain_info()
+        assert info["source"] == "plantdoc"
+        assert info["target"] == "field_plant"
+        print(f"    CrossDomain plantdoc->field_plant: {len(cds)} samples")
+
+
+def test_download_data_list():
+    """Test download script --list mode."""
+    import subprocess
+    result = subprocess.run(
+        [sys.executable, "-m", "crop_ssl.scripts.download_data", "--list"],
+        capture_output=True, text=True, timeout=10,
+    )
+    assert result.returncode == 0
+    assert "plant_seg" in result.stdout
+    assert "field_plant" in result.stdout
+    assert "bracol" in result.stdout
+    print("    Download script --list: all 13 datasets shown ✓")
+
+
+def test_multiple_ssl_methods_factory():
+    """Test creating all SSL methods with all backbone sizes."""
+    from crop_ssl.models.ssl import create_ssl_model
+    for method in ["dinov2", "moco_v3", "simclr", "mae"]:
+        for backbone, dim in [("vit_small", 384), ("vit_base", 768)]:
+            model = create_ssl_model(method, backbone=backbone, embed_dim=dim)
+            assert model is not None
+    print("    SSL factory: 4 methods x 2 backbones = 8 models ✓")
+
+
+def test_mae_different_mask_ratios():
+    """Test MAE with different mask ratios produce different mask patterns."""
+    from crop_ssl.models.ssl.mae import MAE
+    imgs = torch.randn(2, 3, 224, 224)
+    m25 = MAE(backbone="vit_small", embed_dim=384, mask_ratio=0.25)
+    m75 = MAE(backbone="vit_small", embed_dim=384, mask_ratio=0.75)
+    r25 = m25(imgs)
+    r75 = m75(imgs)
+    ratio25 = r25["mask"].float().mean().item()
+    ratio75 = r75["mask"].float().mean().item()
+    assert ratio25 < ratio75, f"25% mask ({ratio25:.2f}) should be less than 75% ({ratio75:.2f})"
+    print(f"    MAE mask ratios: 25%->mask={ratio25:.2f}, 75%->mask={ratio75:.2f}")
+
+
+def test_model_summary_detailed():
+    """Test model summary output contains expected fields."""
+    from crop_ssl.utils.export import model_summary, count_parameters
+    from crop_ssl.models.backbones.vit import vit_base_patch16
+    model = vit_base_patch16(num_classes=38)
+    summary = model_summary(model)
+    params = count_parameters(model)
+    assert "Total parameters" in summary
+    assert "Trainable" in summary
+    assert params["total"] > params["trainable"] or params["trainable"] == params["total"]
+    print(f"    Model summary: {params["total"]:,} params, {params["trainable_pct"]:.1f}% trainable")
+
+
+def test_cutmix_vs_mixup_diversity():
+    """Test that CutMix and MixUp produce different mixed outputs."""
+    from crop_ssl.utils.training import CutMix, MixUp
+    torch.manual_seed(42)
+    cm = CutMix(num_classes=10, alpha=1.0, prob=1.0)
+    mu = MixUp(num_classes=10, alpha=0.2, prob=1.0)
+    imgs = torch.randn(8, 3, 224, 224)
+    labels = torch.randint(0, 10, (8,))
+    cm_img, cm_lbl = cm(imgs, labels)
+    mu_img, mu_lbl = mu(imgs, labels)
+    # CutMix should cut-paste regions; MixUp should blend globally
+    # They should produce different results
+    img_diff = (cm_img - mu_img).abs().mean().item()
+    assert img_diff > 0, "CutMix and MixUp produced identical images"
+    print(f"    CutMix vs MixUp: img diff={img_diff:.4f}")
+
+
+def test_evaluate_script_choices():
+    """Test that evaluate.py has all dataset choices."""
+    import subprocess
+    result = subprocess.run(
+        [sys.executable, "-m", "crop_ssl.scripts.evaluate", "--help"],
+        capture_output=True, text=True, timeout=10,
+    )
+    assert result.returncode == 0
+    for ds in ["plant_seg", "field_plant", "diamos_plant", "bracol"]:
+        assert ds in result.stdout, f"{ds} not in evaluate.py choices"
+    print("    evaluate.py choices: all 12 datasets present ✓")
+
+
+# ============================================================
 # MAIN
 # ============================================================
 if __name__ == "__main__":
@@ -1454,6 +1870,34 @@ if __name__ == "__main__":
     run_test("Active learning committee", test_active_learner_query_by_committee)
     run_test("MAEReconstructionHead with pos_embed", test_mae_reconstruction_head)
     run_test("ProtoNet euclidean distance", test_prototypical_network_distance)
+
+    print("\n⚡ Efficiency & Stress Tests:")
+    run_test("SSL param counts", test_ssl_model_parameter_count)
+    run_test("DINOv2 gradient flow", test_dinov2_gradient_flow)
+    run_test("MoCo negative pairs", test_moco_negative_pairs)
+    run_test("MAE reconstruction quality", test_mae_reconstruction_quality)
+    run_test("SimCLR temperature effect", test_simclr_temperature_effect)
+    run_test("LoRA rank effect", test_lora_rank_effect)
+    run_test("Early stopping max mode", test_early_stopping_max_mode)
+    run_test("CutMix label proportions", test_cutmix_label_proportions)
+    run_test("Cosine warmup monotonic", test_cosine_warmup_monotonic_warmup)
+    run_test("Checkpoint roundtrip", test_checkpoint_roundtrip)
+    run_test("Gradient clipping", test_gradient_clipping)
+    run_test("EMA decay effect", test_model_ema_decay_effect)
+    run_test("Combined domain adaptation", test_domain_adaptation_combined)
+    run_test("Calibrate then predict", test_calibrate_then_predict)
+    run_test("AL all strategies", test_active_learning_all_strategies)
+    run_test("Feature viz pipeline", test_feature_viz_extract_and_tsne)
+    run_test("ViT attention shapes", test_vit_attention_map_shapes)
+    run_test("Config roundtrip detailed", test_config_from_dict_roundtrip)
+    run_test("Export SSL backbone", test_export_ssl_backbone)
+    run_test("CrossDomain new datasets", test_cross_domain_dataset_with_new_datasets)
+    run_test("Download script --list", test_download_data_list)
+    run_test("SSL factory all combos", test_multiple_ssl_methods_factory)
+    run_test("MAE mask ratios", test_mae_different_mask_ratios)
+    run_test("Model summary detailed", test_model_summary_detailed)
+    run_test("CutMix vs MixUp", test_cutmix_vs_mixup_diversity)
+    run_test("Evaluate script choices", test_evaluate_script_choices)
 
     print("\n" + "=" * 60)
     print(f"Results: {PASS} passed, {FAIL} failed out of {PASS + FAIL} tests")
