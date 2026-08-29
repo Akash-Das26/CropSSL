@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 ViT Backbone for CropSSL.
 

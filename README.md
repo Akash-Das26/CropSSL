@@ -205,15 +205,31 @@ CropSSL/
 ├── crop_ssl/
 │   ├── data/
 │   │   ├── datasets/           # 5 dataset loaders + samplers
+│   │   │   ├── plantvillage.py  # Auto-download + synthetic fallback
+│   │   │   ├── plantdoc.py      # Synthetic fallback
+│   │   │   ├── rice_leaf.py     # Synthetic fallback
+│   │   │   ├── coffee_leaf.py   # Synthetic fallback
+│   │   │   └── domainnet_plant.py
 │   │   └── transforms/         # SSL-specific augmentations
 │   ├── models/
 │   │   ├── backbones/vit.py    # ViT-S/B/L implementations
 │   │   ├── heads/              # Projection heads for all SSL
 │   │   ├── ssl/                # DINOv2, MoCo v3, SimCLR, MAE
 │   │   └── adaptation/         # LoRA, ProtoNet, DANN, MMD, CORAL
-│   ├── evaluation/             # Metrics + cross-domain evaluator
+│   ├── evaluation/             # Metrics + advanced tools
+│   │   ├── metrics.py          # Accuracy, F1, ECE, FDR
+│   │   ├── grad_cam.py         # Disease localization heatmaps
+│   │   ├── tta.py              # Test-time augmentation
+│   │   ├── ensemble.py         # Model ensembling
+│   │   ├── calibration.py      # Confidence calibration
+│   │   ├── active_learning.py  # Sample selection strategies
+│   │   ├── feature_viz.py      # t-SNE/UMAP visualization
+│   │   └── cross_domain_eval.py
 │   ├── configs/                # Experiment configurations
-│   ├── scripts/                # Train + evaluate CLI scripts
+│   ├── scripts/                # CLI scripts
+│   │   ├── train_ssl.py        # SSL pre-training
+│   │   ├── evaluate.py         # Cross-domain evaluation
+│   │   └── download_data.py    # Dataset preparation
 │   ├── tests/                  # 50 comprehensive tests
 │   └── utils/                  # Logging, checkpointing, visualization
 ├── requirements.txt
@@ -238,6 +254,37 @@ pip install -r requirements.txt
 ```bash
 python crop_ssl/tests/test_all.py
 # Output: 50 passed, 0 failed
+```
+
+### Prepare Datasets
+
+```bash
+# Option 1: Create synthetic datasets (instant, for testing)
+python -m crop_ssl.scripts.download_data --synthetic
+
+# Option 2: Download real PlantVillage + create synthetic for others
+python -m crop_ssl.scripts.download_data --data_root ./data
+
+# Option 3: Download specific dataset
+python -m crop_ssl.scripts.download_data --dataset plantvillage
+```
+
+**Real Dataset Sources:**
+
+| Dataset | Download Link | Size | Classes |
+|---------|--------------|------|---------|
+| **PlantVillage** | [Mendeley](https://data.mendeley.com/datasets/tywbtsjrj5/2) or auto-download | 54,309 images | 38 |
+| **PlantDoc** | [GitHub](https://github.com/pratikkayal/PlantDoc-Dataset) | 2,598 images | 27 |
+| **RiceLeaf** | [Kaggle](https://www.kaggle.com/datasets/) | ~5,000+ images | 7 |
+| **CoffeeLeaf** | [Research papers](https://doi.org/) | ~5,000+ images | 5 |
+
+After downloading, place datasets in `./data/` with the expected directory structure:
+```
+data/
+├── PlantVillage/colored/Tomato___Bacterial_spot/...
+├── PlantDoc/Apple___Scab/...
+├── RiceLeaf/bacterial_leaf_blight/...
+└── CoffeeLeaf/healthy/...
 ```
 
 ### SSL Pre-training
