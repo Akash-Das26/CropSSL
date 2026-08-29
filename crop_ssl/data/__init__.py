@@ -9,6 +9,10 @@ from crop_ssl.data.datasets.new_plant_diseases import NewPlantDiseasesDataset
 from crop_ssl.data.datasets.cassava_leaf import CassavaLeafDataset
 from crop_ssl.data.datasets.plant_pathology import PlantPathologyDataset
 from crop_ssl.data.datasets.icassava_2019 import ICassava2019Dataset
+from crop_ssl.data.datasets.plant_seg import PlantSegDataset
+from crop_ssl.data.datasets.field_plant import FieldPlantDataset
+from crop_ssl.data.datasets.diamos_plant import DiaMOSPlantDataset
+from crop_ssl.data.datasets.bracol import BRACOLDataset
 from crop_ssl.data.datasets.few_shot_sampler import FewShotSampler
 from crop_ssl.data.datasets.cross_domain_dataset import CrossDomainDataset
 
@@ -22,6 +26,10 @@ DATASET_REGISTRY = {
     "cassava_leaf": CassavaLeafDataset,
     "plant_pathology": PlantPathologyDataset,
     "icassava_2019": ICassava2019Dataset,
+    "plant_seg": PlantSegDataset,
+    "field_plant": FieldPlantDataset,
+    "diamos_plant": DiaMOSPlantDataset,
+    "bracol": BRACOLDataset,
 }
 
 __all__ = [
@@ -34,6 +42,10 @@ __all__ = [
     "CassavaLeafDataset",
     "PlantPathologyDataset",
     "ICassava2019Dataset",
+    "PlantSegDataset",
+    "FieldPlantDataset",
+    "DiaMOSPlantDataset",
+    "BRACOLDataset",
     "FewShotSampler",
     "CrossDomainDataset",
     "DATASET_REGISTRY",

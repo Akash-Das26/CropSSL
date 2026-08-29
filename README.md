@@ -5,10 +5,10 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.8+-blue.svg" alt="Python">
   <img src="https://img.shields.io/badge/PyTorch-2.0+-ee4c2c.svg" alt="PyTorch">
-  <img src="https://img.shields.io/badge/Tests-85%20Passing-brightgreen.svg" alt="Tests">
+  <img src="https://img.shields.io/badge/Tests-95%20Passing-brightgreen.svg" alt="Tests">
   <img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License">
   <img src="https://img.shields.io/badge/Models-4%20SSL-brightgreen.svg" alt="SSL Methods">
-  <img src="https://img.shields.io/badge/Datasets-9-blue.svg" alt="Datasets">
+  <img src="https://img.shields.io/badge/Datasets-13-blue.svg" alt="Datasets">
 </p>
 
 ---
@@ -106,6 +106,10 @@ Input Images
 | CoffeeLeaf | Agricultural field | ~5,000+ | 5 | Supplementary | Research publications |
 | DomainNet-Plant | Multi-domain | Custom | 12 | Domain shift analysis | Synthetic (5 domains) |
 | NewPlantDiseases | Augmented lab | 87,848 | 38 | Augmented baseline | [Kaggle](https://www.kaggle.com/datasets/emmarex/plantdisease) |
+| **PlantSeg** | In-the-wild segmentation | 11,400+ | 115 | Disease localization | [Zenodo](https://github.com/tqwei05/PlantSeg) / [Nature](https://www.nature.com/articles/s41597-025-06513-4) |
+| **FieldPlant** | Real plantation | 5,170 | 27 | Independent field benchmark | [Roboflow](https://universe.roboflow.com/plant-disease-detection/fieldplant) / [IEEE](https://ieeexplore.ieee.org/document/10086516/) |
+| **DiaMOSPlant** | Season-long Italian orchard | 3,505 | 10 + severity | Severity regression | [Zenodo](https://doi.org/10.5281/zenodo.5557313) / [Kaggle](https://www.kaggle.com/datasets/alexandraneagu101/diamos-plant-dataset) |
+| **BRACOL** | Multi-sensor Brazilian coffee | 1,747 | 5 + 5 phones | Camera/sensor robustness | [Mendeley](https://data.mendeley.com/datasets/yy2k5y8mxg/1) |
 
 ---
 
@@ -113,7 +117,7 @@ Input Images
 
 ### 4.1 Test Suite Validation
 
-All 85 unit and integration tests pass across the following modules:
+All 95 unit and integration tests pass across the following modules:
 
 | Module | Tests | Status |
 |--------|-------|--------|
@@ -128,6 +132,7 @@ All 85 unit and integration tests pass across the following modules:
 | Training Utilities (EarlyStopping, EMA, CutMix, MixUp, LRScheduler) | 7 | All passing |
 | New Dataset Loaders (NewPlantDiseases, CassavaLeaf, DomainNet) | 3 | All passing |
 | Extended Datasets (PlantPathology, iCassava2019, Registry) | 4 | All passing |
+| Advanced Datasets (PlantSeg, FieldPlant, DiaMOSPlant, BRACOL) | 14 | All passing |
 | Backend API & Export | 2 | All passing |
 | Edge Cases & Integration (configs, logging, reproducibility, etc.) | 19 | All passing |
 
@@ -201,6 +206,10 @@ Real dataset sources (auto-download where possible):
 | RiceLeaf | — | Kaggle |
 | CoffeeLeaf | — | — |
 | NewPlantDiseases | — | [Kaggle](https://www.kaggle.com/datasets/emmarex/plantdisease) |
+| **PlantSeg** | — | [Zenodo](https://github.com/tqwei05/PlantSeg) |
+| **FieldPlant** | — | [Roboflow](https://universe.roboflow.com/plant-disease-detection/fieldplant) |
+| **DiaMOSPlant** | — | [Zenodo](https://doi.org/10.5281/zenodo.5557313) |
+| **BRACOL** | — | [Mendeley](https://data.mendeley.com/datasets/yy2k5y8mxg/1) |
 
 Expected directory structure after download:
 ```

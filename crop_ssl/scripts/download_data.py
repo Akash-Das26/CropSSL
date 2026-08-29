@@ -19,6 +19,10 @@ Supported datasets and their primary sources:
     rice_leaf         — Synthetic fallback (manual Kaggle download required)
     coffee_leaf       — Synthetic fallback
     new_plant_diseases — Synthetic fallback (Kaggle augmented PlantVillage)
+    plant_seg         — Synthetic fallback (Zenodo: https://doi.org/10.5281/zenodo.XXX)
+    field_plant       — Synthetic fallback (Roboflow: https://universe.roboflow.com/plant-disease-detection/fieldplant)
+    diamos_plant      — Synthetic fallback (Zenodo: https://doi.org/10.5281/zenodo.5557313)
+    bracol            — Synthetic fallback (Mendeley: https://data.mendeley.com/datasets/yy2k5y8mxg/1)
 """
 
 import argparse
@@ -107,6 +111,46 @@ def create_new_plant_diseases_synthetic(data_root: str):
     return ds
 
 
+def create_plant_seg_synthetic(data_root: str):
+    """Create PlantSeg dataset (synthetic or Zenodo download)."""
+    from crop_ssl.data.datasets.plant_seg import PlantSegDataset
+    print("Loading PlantSeg (synthetic fallback — segmentation dataset)...")
+    ds = PlantSegDataset(root=data_root, split="train")
+    print(f"  ✓ PlantSeg: {len(ds)} samples, {ds.num_classes} classes (segmentation)")
+    print("    → Real data: https://github.com/tqwei05/PlantSeg")
+    return ds
+
+
+def create_field_plant_synthetic(data_root: str):
+    """Create FieldPlant dataset (synthetic or Roboflow download)."""
+    from crop_ssl.data.datasets.field_plant import FieldPlantDataset
+    print("Loading FieldPlant (synthetic fallback — real plantation images)...")
+    ds = FieldPlantDataset(root=data_root, split="train")
+    print(f"  ✓ FieldPlant: {len(ds)} samples, {ds.num_classes} classes")
+    print("    → Real data: https://universe.roboflow.com/plant-disease-detection/fieldplant")
+    return ds
+
+
+def create_diamos_plant_synthetic(data_root: str):
+    """Create DiaMOS Plant dataset (synthetic or Zenodo download)."""
+    from crop_ssl.data.datasets.diamos_plant import DiaMOSPlantDataset
+    print("Loading DiaMOSPlant (synthetic fallback — severity regression)...")
+    ds = DiaMOSPlantDataset(root=data_root, split="train")
+    print(f"  ✓ DiaMOSPlant: {len(ds)} samples, {ds.num_classes} classes + severity")
+    print("    → Real data: https://doi.org/10.5281/zenodo.5557313")
+    return ds
+
+
+def create_bracol_synthetic(data_root: str):
+    """Create BRACOL dataset (synthetic or Mendeley download)."""
+    from crop_ssl.data.datasets.bracol import BRACOLDataset
+    print("Loading BRACOL (synthetic fallback — multi-phone coffee disease)...")
+    ds = BRACOLDataset(root=data_root, split="train")
+    print(f"  ✓ BRACOL: {len(ds)} samples, {ds.num_classes} classes, {ds.num_phone_models} phone models")
+    print("    → Real data: https://data.mendeley.com/datasets/yy2k5y8mxg/1")
+    return ds
+
+
 def create_synthetic_all(data_root: str):
     """Create all synthetic datasets for pipeline testing."""
     print("\n📦 Creating synthetic datasets for pipeline testing...\n")
@@ -116,6 +160,10 @@ def create_synthetic_all(data_root: str):
     create_riceleaf_synthetic(data_root)
     create_coffeeleaf_synthetic(data_root)
     create_new_plant_diseases_synthetic(data_root)
+    create_plant_seg_synthetic(data_root)
+    create_field_plant_synthetic(data_root)
+    create_diamos_plant_synthetic(data_root)
+    create_bracol_synthetic(data_root)
     print("\n✅ All synthetic datasets created!")
 
 
@@ -124,6 +172,7 @@ def create_synthetic_all(data_root: str):
 ALL_DATASETS = [
     "plantvillage", "plantdoc", "cassava_leaf", "plant_pathology",
     "icassava_2019", "rice_leaf", "coffee_leaf", "new_plant_diseases",
+    "plant_seg", "field_plant", "diamos_plant", "bracol",
 ]
 
 DATASET_DESCRIPTIONS = {
@@ -135,6 +184,10 @@ DATASET_DESCRIPTIONS = {
     "rice_leaf": "~5,000 images, 7 classes, rice disease (manual download from Kaggle)",
     "coffee_leaf": "~5,000 images, 5 classes, coffee disease",
     "new_plant_diseases": "87,848 images, 38 classes, augmented PlantVillage (manual download from Kaggle)",
+    "plant_seg": "11,400+ images, 115 classes, segmentation masks (Zenodo download)",
+    "field_plant": "5,170 images, 27 classes, real plantation-shot (Roboflow download)",
+    "diamos_plant": "3,505 images, 10 classes + severity 0-100%, pear (Zenodo download)",
+    "bracol": "1,747 images, 5 classes, 5 phone models, coffee (Mendeley download)",
 }
 
 
@@ -199,6 +252,10 @@ Examples:
         "rice_leaf": create_riceleaf_synthetic,
         "coffee_leaf": create_coffeeleaf_synthetic,
         "new_plant_diseases": create_new_plant_diseases_synthetic,
+        "plant_seg": create_plant_seg_synthetic,
+        "field_plant": create_field_plant_synthetic,
+        "diamos_plant": create_diamos_plant_synthetic,
+        "bracol": create_bracol_synthetic,
     }
 
     if target == "all":
