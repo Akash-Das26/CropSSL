@@ -20,17 +20,17 @@ env/
 *.swo
 
 # Data (large files)
-data/
-datasets/
+/data/
+/datasets/
 *.zip
 *.tar.gz
 
 # Model checkpoints
-checkpoints/
-outputs/
-logs/
-wandb/
-runs/
+/checkpoints/
+/outputs/
+/logs/
+/wandb/
+/runs/
 
 # Jupyter
 .ipynb_checkpoints/

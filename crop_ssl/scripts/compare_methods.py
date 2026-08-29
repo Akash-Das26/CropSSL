@@ -15,7 +15,7 @@ import argparse
 import json
 import time
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict
 
 import torch
 import torch.nn as nn
@@ -24,14 +24,8 @@ from torch.utils.data import DataLoader, TensorDataset
 from crop_ssl.models.ssl import create_ssl_model
 from crop_ssl.models.adaptation.few_shot_adapter import FewShotAdapter
 from crop_ssl.evaluation.metrics import (
-    compute_accuracy,
-    compute_per_class_metrics,
-    compute_domain_shift_metrics,
-    compute_calibration_metrics,
     EvaluationSuite,
 )
-from crop_ssl.utils.training import EarlyStopping, ModelEMA
-from crop_ssl.utils.checkpointing import save_checkpoint
 from crop_ssl.utils.reproducibility import set_seed
 
 

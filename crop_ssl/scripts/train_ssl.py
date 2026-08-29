@@ -16,7 +16,6 @@ Usage:
 """
 
 import argparse
-import json
 import os
 from pathlib import Path
 
@@ -24,7 +23,6 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-from crop_ssl.configs.default import ExperimentConfig, SSLConfig, DataConfig, TrainConfig
 from crop_ssl.data.datasets.plantvillage import PlantVillageDataset
 from crop_ssl.data.transforms.augmentations import (
     MultiCropTransform,
@@ -35,7 +33,7 @@ from crop_ssl.data.transforms.augmentations import (
 )
 from crop_ssl.models.ssl import create_ssl_model
 from crop_ssl.utils.logging import ExperimentLogger, Timer
-from crop_ssl.utils.checkpointing import save_checkpoint, save_best_model
+from crop_ssl.utils.checkpointing import save_checkpoint
 from crop_ssl.utils.reproducibility import set_seed
 
 
@@ -110,10 +108,9 @@ def train_one_epoch_ssl(
         timer.start("backward")
         optimizer.zero_grad()
         loss.backward()
-        if hasattr(optimizer, "clip_grad_norm_"):
-            torch.nn.utils.clip_grad_norm_(
-                model.parameters(), max_norm=1.0
-            )
+        torch.nn.utils.clip_grad_norm_(
+            model.parameters(), max_norm=1.0
+        )
         optimizer.step()
         timer.stop("backward")
 
