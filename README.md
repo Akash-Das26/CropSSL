@@ -11,7 +11,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.8+-blue.svg" alt="Python">
   <img src="https://img.shields.io/badge/PyTorch-2.0+-ee4c2c.svg" alt="PyTorch">
-  <img src="https://img.shields.io/badge/Tests-95%20Passing-brightgreen.svg" alt="Tests">
+  <img src="https://img.shields.io/badge/Tests-121%20Passing-brightgreen.svg" alt="Tests">
   <img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License">
   <img src="https://img.shields.io/badge/Models-4%20SSL-brightgreen.svg" alt="SSL Methods">
   <img src="https://img.shields.io/badge/Datasets-13-blue.svg" alt="Datasets">
@@ -123,7 +123,7 @@ Input Images
 
 ### 4.1 Test Suite Validation
 
-All 95 unit and integration tests pass across the following modules:
+All 121 unit and integration tests pass across the following modules:
 
 | Module | Tests | Status |
 |--------|-------|--------|
@@ -141,6 +141,7 @@ All 95 unit and integration tests pass across the following modules:
 | Advanced Datasets (PlantSeg, FieldPlant, DiaMOSPlant, BRACOL) | 14 | All passing |
 | Backend API & Export | 2 | All passing |
 | Edge Cases & Integration (configs, logging, reproducibility, etc.) | 19 | All passing |
+| Efficiency & Stress Tests (gradient flow, param counts, ablations) | 26 | All passing |
 
 ### 4.2 Parameter Efficiency
 
