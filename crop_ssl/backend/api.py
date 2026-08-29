@@ -200,9 +200,17 @@ async def predict(file: UploadFile = File(...), model_name: Optional[str] = None
     else:
         raise HTTPException(status_code=500, detail="No model loaded")
 
-    # Read image
+    # Read and validate image
     contents = await file.read()
-    image = Image.open(io.BytesIO(contents)).convert("RGB")
+    if len(contents) == 0:
+        raise HTTPException(400, "Empty file uploaded")
+    if len(contents) > 10 * 1024 * 1024:  # 10MB limit
+        raise HTTPException(400, "File too large (max 10MB)")
+
+    try:
+        image = Image.open(io.BytesIO(contents)).convert("RGB")
+    except Exception:
+        raise HTTPException(400, "Invalid image file. Supported: JPG, PNG")
 
     # Preprocess
     transform = T.Compose([
@@ -250,9 +258,16 @@ async def load_model(model_name: str):
 
     from crop_ssl.models.ssl import create_ssl_model
 
-    parts = model_name.split("_")
-    method = parts[0] if parts else "simclr"
-    backbone = "_".join(parts[1:]) if len(parts) > 1 else "vit_small"
+    # Parse method_backbone (e.g., 'dinov2_vit_base' -> method='dinov2', backbone='vit_base')
+    known_methods = ["dinov2", "moco_v3", "simclr", "mae"]
+    method = "simclr"
+    backbone = "vit_small"
+    for m in known_methods:
+        if model_name.startswith(m):
+            method = m
+            remainder = model_name[len(m):].lstrip("_")
+            backbone = remainder if remainder else "vit_small"
+            break
 
     embed_dims = {"vit_small": 384, "vit_base": 768, "vit_large": 1024}
     embed_dim = embed_dims.get(backbone, 384)
@@ -298,6 +313,13 @@ async def start_training(
     epochs: int = 10,
     lr: float = 1e-4,
 ):
+    # Validate inputs
+    if method not in ["simclr", "dinov2", "moco_v3", "mae"]:
+        raise HTTPException(400, f"Unknown method: {method}")
+    if backbone not in ["vit_small", "vit_base", "vit_large"]:
+        raise HTTPException(400, f"Unknown backbone: {backbone}")
+    epochs = max(1, min(epochs, 100))
+    lr = max(1e-6, min(lr, 1.0))
     """Start a training job (background)."""
     job_id = str(uuid.uuid4())[:8]
     TRAINING_JOBS[job_id] = {

@@ -20,6 +20,7 @@ from pathlib import Path
 import streamlit as st
 import torch
 import torch.nn.functional as F
+from PIL import Image
 
 # ============================================================
 # Page Config
@@ -200,6 +201,8 @@ def predict_image(model, image):
     ])
 
     tensor = transform(image).unsqueeze(0)
+    device = next(model.parameters()).device
+    tensor = tensor.to(device)
 
     start = time.time()
     with torch.no_grad():
@@ -501,5 +504,5 @@ with tab4:
 # Run
 # ============================================================
 if __name__ == "__main__":
-    from PIL import Image
-    # This ensures Image is available in all tabs
+    # Streamlit runs this file directly
+    pass
