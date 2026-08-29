@@ -53,7 +53,7 @@ def load_checkpoint(
     checkpoint_path: str,
     model: nn.Module,
     optimizer: Optional[torch.optim.Optimizer] = None,
-    device: str = "cuda",
+    device: str = "cpu",
 ) -> Dict[str, Any]:
     """Load model checkpoint.
 
@@ -66,7 +66,8 @@ def load_checkpoint(
     Returns:
         Dict with 'epoch', 'metrics', and any additional info.
     """
-    checkpoint = torch.load(checkpoint_path, map_location=device)
+    # Always load to CPU first, then move to target device
+    checkpoint = torch.load(checkpoint_path, map_location="cpu")
 
     model.load_state_dict(checkpoint["model_state_dict"])
 

@@ -346,9 +346,10 @@ def vit_small_patch16(**kwargs) -> VisionTransformer:
         depth=12,
         num_heads=6,
         mlp_ratio=4.0,
+        patch_size=16,
     )
     defaults.update(kwargs)
-    return VisionTransformer(patch_size=16, **defaults)
+    return VisionTransformer(**defaults)
 
 
 def vit_base_patch16(**kwargs) -> VisionTransformer:
@@ -358,9 +359,10 @@ def vit_base_patch16(**kwargs) -> VisionTransformer:
         depth=12,
         num_heads=12,
         mlp_ratio=4.0,
+        patch_size=16,
     )
     defaults.update(kwargs)
-    return VisionTransformer(patch_size=16, **defaults)
+    return VisionTransformer(**defaults)
 
 
 def vit_large_patch16(**kwargs) -> VisionTransformer:
@@ -370,6 +372,7 @@ def vit_large_patch16(**kwargs) -> VisionTransformer:
         depth=24,
         num_heads=16,
         mlp_ratio=4.0,
+        patch_size=16,
     )
     defaults.update(kwargs)
-    return VisionTransformer(patch_size=16, **defaults)
+    return VisionTransformer(**defaults)

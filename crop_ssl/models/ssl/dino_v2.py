@@ -88,10 +88,8 @@ class DINOv2(nn.Module):
             embed_dim=embed_dim, patch_size=patch_size
         )
 
-        # Freeze teacher (both backbone AND head)
+        # Freeze teacher backbone
         for p in self.teacher_backbone.parameters():
-            p.requires_grad = False
-        for p in self.teacher_head.parameters():
             p.requires_grad = False
 
         # Projection heads
@@ -113,6 +111,10 @@ class DINOv2(nn.Module):
         self.teacher_head.load_state_dict(
             self.student_head.state_dict()
         )
+
+        # Freeze teacher head (after loading weights)
+        for p in self.teacher_head.parameters():
+            p.requires_grad = False
 
         # Center for teacher outputs
         self.register_buffer("center", torch.zeros(1, out_dim))
@@ -160,10 +162,11 @@ class DINOv2(nn.Module):
         student_cls = []
         student_out = []
         for crop in crops:
-            features = self.student_backbone.forward_features(
-                crop.unsqueeze(0)
-            )  # (1, D)
-            proj = self.student_head(features)  # (1, out_dim)
+            # Handle both batched (B,C,H,W) and unbatched (C,H,W) inputs
+            if crop.dim() == 3:
+                crop = crop.unsqueeze(0)
+            features = self.student_backbone.forward_features(crop)
+            proj = self.student_head(features)
             student_cls.append(features)
             student_out.append(proj)
 
@@ -175,9 +178,9 @@ class DINOv2(nn.Module):
             teacher_cls = []
             teacher_out = []
             for crop in crops[:n_global]:
-                features = self.teacher_backbone.forward_features(
-                    crop.unsqueeze(0)
-                )
+                if crop.dim() == 3:
+                    crop = crop.unsqueeze(0)
+                features = self.teacher_backbone.forward_features(crop)
                 proj = self.teacher_head(features)
                 teacher_cls.append(features)
                 teacher_out.append(proj)
@@ -205,8 +208,9 @@ class DINOv2(nn.Module):
         # Cross-entropy loss: each student crop predicts teacher output
         # For global crops (0,1): student[i] predicts teacher[i]
         # For local crops (2..N): student[i] predicts mean of teacher globals
+        n_crops = len(crops)
         total_loss = 0.0
-        for s_idx in range(len(student_out)):
+        for s_idx in range(n_crops):
             loss = F.kl_div(
                 student_out[s_idx].unsqueeze(0),
                 teacher_all[s_idx].unsqueeze(0),
@@ -214,7 +218,7 @@ class DINOv2(nn.Module):
             )
             total_loss += loss
 
-        total_loss /= len(student_out)
+        total_loss /= n_crops
 
         return {
             "loss": total_loss,

@@ -208,11 +208,17 @@ class DomainAdaptationModule(nn.Module):
         backbone: nn.Module,
         num_classes: int,
         adaptation_type: str = "dann",
-        input_dim: int = 768,
+        input_dim: Optional[int] = None,
     ):
         super().__init__()
         self.backbone = backbone
         self.adaptation_type = adaptation_type
+
+        # Auto-detect input_dim from backbone if not provided
+        if input_dim is None:
+            with torch.no_grad():
+                dummy = torch.randn(1, 3, 224, 224)
+                input_dim = self.backbone.forward_features(dummy).shape[-1]
 
         # Task classifier
         self.task_classifier = nn.Sequential(
