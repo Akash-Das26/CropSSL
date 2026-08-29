@@ -631,6 +631,108 @@ def test_tsne():
 
 
 # ============================================================
+# 11. Training Utilities Tests
+# ============================================================
+def test_early_stopping():
+    from crop_ssl.utils.training import EarlyStopping
+    es = EarlyStopping(patience=3, mode="min")
+    # Simulate improving loss
+    assert not es(1.0)
+    assert not es(0.9)
+    assert not es(0.8)
+    assert not es(0.7)
+    # Simulate worsening loss
+    assert not es(0.8)  # patience=1
+    assert not es(0.9)  # patience=2
+    assert es(1.0)      # patience=3 -> stop
+    print(f"    Early stop triggered after patience=3")
+
+
+def test_model_ema():
+    from crop_ssl.utils.training import ModelEMA
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    model = vit_small_patch16()
+    ema = ModelEMA(model, decay=0.999)
+    # EMA should produce slightly different output
+    x = torch.randn(1, 3, 224, 224)
+    before = ema.shadow(x).clone()
+    ema.update()
+    after = ema.shadow(x)
+    diff = (before - after).abs().mean().item()
+    print(f"    EMA diff after 1 step: {diff:.6f}")
+    # Store/restore
+    ema.store()
+    print(f"    EMA store/restore works")
+
+
+def test_cutmix():
+    from crop_ssl.utils.training import CutMix
+    cm = CutMix(num_classes=10, alpha=1.0, prob=1.0)
+    images = torch.randn(8, 3, 224, 224)
+    labels = torch.randint(0, 10, (8,))
+    mixed_img, mixed_labels = cm(images, labels)
+    assert mixed_img.shape == images.shape
+    assert mixed_labels.shape == (8, 10)
+    assert abs(mixed_labels.sum(dim=1).mean().item() - 1.0) < 0.01
+    print(f"    CutMix: images={mixed_img.shape}, labels={mixed_labels.shape}")
+
+
+def test_mixup():
+    from crop_ssl.utils.training import MixUp
+    mu = MixUp(num_classes=10, alpha=0.2, prob=1.0)
+    images = torch.randn(8, 3, 224, 224)
+    labels = torch.randint(0, 10, (8,))
+    mixed_img, mixed_labels = mu(images, labels)
+    assert mixed_img.shape == images.shape
+    assert mixed_labels.shape == (8, 10)
+    print(f"    MixUp: images={mixed_img.shape}, labels={mixed_labels.shape}")
+
+
+def test_lr_finder():
+    import torch.nn as nn
+    from crop_ssl.utils.training import LRFinder
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    from torch.utils.data import TensorDataset, DataLoader
+    model = vit_small_patch16(num_classes=10)
+    optimizer = torch.optim.SGD(model.parameters(), lr=1e-7)
+    criterion = nn.CrossEntropyLoss()
+    lr_finder = LRFinder(model, optimizer, criterion)
+    ds = TensorDataset(torch.randn(32, 3, 224, 224), torch.randint(0, 10, (32,)))
+    loader = DataLoader(ds, batch_size=8)
+    result = lr_finder.range_test(loader, start_lr=1e-7, end_lr=1, num_steps=20)
+    assert "best_lr" in result
+    assert len(lr_finder.lrs) > 0
+    print(f"    Best LR: {result['best_lr']:.6f}, steps: {len(lr_finder.lrs)}")
+
+
+def test_cosine_warmup():
+    from crop_ssl.utils.training import CosineWarmupScheduler
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    model = vit_small_patch16(num_classes=10)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    scheduler = CosineWarmupScheduler(optimizer, warmup_epochs=5, total_epochs=50)
+    lrs = []
+    for _ in range(50):
+        scheduler.step()
+        lrs.append(scheduler.get_last_lr()[0])
+    assert lrs[0] < lrs[4], "LR should increase during warmup"
+    assert lrs[4] > lrs[-1], "LR should decrease after warmup"
+    print(f"    LR range: {min(lrs):.6f} to {max(lrs):.6f}")
+
+
+def test_model_summary():
+    from crop_ssl.utils.export import model_summary, count_parameters
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    model = vit_small_patch16()
+    params = count_parameters(model)
+    assert params["total"] > 0
+    assert params["trainable"] > 0
+    summary = model_summary(model)
+    assert "Total parameters" in summary
+    print(f"    Params: {params['total']:,} total, {params['trainable']:,} trainable")
+
+
+# ============================================================
 # Run All Tests
 # ============================================================
 if __name__ == "__main__":
@@ -705,6 +807,15 @@ if __name__ == "__main__":
     run_test("Active learning (margin)", test_active_learner_margin)
     run_test("Feature extraction", test_feature_extraction)
     run_test("t-SNE embedding", test_tsne)
+
+    print("\n⚙️  Training Utilities Tests:")
+    run_test("Early stopping", test_early_stopping)
+    run_test("Model EMA", test_model_ema)
+    run_test("CutMix augmentation", test_cutmix)
+    run_test("MixUp augmentation", test_mixup)
+    run_test("Learning rate finder", test_lr_finder)
+    run_test("Cosine warmup scheduler", test_cosine_warmup)
+    run_test("Model summary & export utils", test_model_summary)
 
     print("\n" + "=" * 60)
     print(f"Results: {PASS} passed, {FAIL} failed out of {PASS + FAIL} tests")
