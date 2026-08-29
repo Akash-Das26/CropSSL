@@ -17,8 +17,6 @@ that strengthens robustness claims.
 
 import csv
 import json
-import zipfile
-import urllib.request
 from pathlib import Path
 from typing import Optional, Tuple
 

@@ -174,12 +174,14 @@ def main():
     parser.add_argument(
         "--source_dataset", type=str, default="plantvillage",
         choices=["plantvillage", "plantdoc", "rice_leaf", "coffee_leaf",
-                 "plant_pathology", "icassava_2019", "new_plant_diseases", "cassava_leaf"],
+                 "plant_pathology", "icassava_2019", "new_plant_diseases", "cassava_leaf",
+                 "plant_seg", "field_plant", "diamos_plant", "bracol"],
     )
     parser.add_argument(
         "--target_dataset", type=str, default="plantdoc",
         choices=["plantvillage", "plantdoc", "rice_leaf", "coffee_leaf",
-                 "plant_pathology", "icassava_2019", "new_plant_diseases", "cassava_leaf"],
+                 "plant_pathology", "icassava_2019", "new_plant_diseases", "cassava_leaf",
+                 "plant_seg", "field_plant", "diamos_plant", "bracol"],
     )
     parser.add_argument("--data_root", type=str, default="./data")
     parser.add_argument(
