@@ -218,6 +218,10 @@ def main():
         PlantPathologyDataset, ICassava2019Dataset,
         NewPlantDiseasesDataset, CassavaLeafDataset,
     )
+    from crop_ssl.data.datasets.plant_seg import PlantSegDataset
+    from crop_ssl.data.datasets.field_plant import FieldPlantDataset
+    from crop_ssl.data.datasets.diamos_plant import DiaMOSPlantDataset
+    from crop_ssl.data.datasets.bracol import BRACOLDataset
 
     dataset_map = {
         "plantvillage": PlantVillageDataset,
@@ -228,6 +232,10 @@ def main():
         "icassava_2019": ICassava2019Dataset,
         "new_plant_diseases": NewPlantDiseasesDataset,
         "cassava_leaf": CassavaLeafDataset,
+        "plant_seg": PlantSegDataset,
+        "field_plant": FieldPlantDataset,
+        "diamos_plant": DiaMOSPlantDataset,
+        "bracol": BRACOLDataset,
     }
 
     # Only PlantVillageDataset supports download=True

@@ -139,7 +139,7 @@ class DINOv2(nn.Module):
     def update_center(self, teacher_output: torch.Tensor):
         """Update center with exponential moving average."""
         batch_center = teacher_output.mean(dim=0, keepdim=True)
-        self.center.data = (
+        self.center.data.copy_(
             self.center.data * self.center_momentum
             + batch_center * (1 - self.center_momentum)
         )

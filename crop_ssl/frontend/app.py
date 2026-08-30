@@ -255,7 +255,7 @@ with st.sidebar:
         index=0,
     )
 
-    if st.button("Load Model", use_container_width=True):
+    if st.button("Load Model", width='stretch'):
         with st.spinner("Loading model..."):
             model = load_model(method, backbone)
             st.session_state["model"] = model
@@ -283,7 +283,7 @@ with st.sidebar:
 # Display logo
 logo_path = Path(__file__).parent.parent.parent / "assets" / "logo.png"
 if logo_path.exists():
-    st.image(str(logo_path), width=150, use_container_width=False)
+    st.image(str(logo_path), width=150)
 else:
     st.markdown('<div class="main-header">🌿</div>', unsafe_allow_html=True)
 
@@ -317,7 +317,7 @@ with tab1:
 
         if uploaded_file:
             image = Image.open(uploaded_file)
-            st.image(image, caption="Uploaded Image", use_container_width=True)
+            st.image(image, caption="Uploaded Image", width='stretch')
 
     with col2:
         if uploaded_file and "model" in st.session_state:
@@ -427,7 +427,7 @@ with tab3:
         train_epochs = st.slider("Epochs", 1, 50, 5)
         train_lr = st.number_input("Learning Rate", value=1e-4, format="%.2e")
 
-    if st.button("Start Training", use_container_width=True):
+    if st.button("Start Training", width='stretch'):
         progress_bar = st.progress(0)
         status_text = st.empty()
 
