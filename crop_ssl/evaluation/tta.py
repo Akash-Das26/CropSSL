@@ -161,6 +161,6 @@ class TestTimeAugmentation:
             "predictions": preds,
             "confidences": confidences,
             "uncertainties": uncertainties,
-            "mean_confidence": sum(confidences) / len(confidences),
-            "mean_uncertainty": sum(uncertainties) / len(uncertainties),
+            "mean_confidence": sum(confidences) / max(len(confidences), 1),
+            "mean_uncertainty": sum(uncertainties) / max(len(uncertainties), 1),
         }
