@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=64.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "crop_ssl"
+version = "1.0.0"
+description = "Cross-Domain Robustness of Self-Supervised Vision Foundation Models for Crop Disease Detection"
+requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+include = ["crop_ssl*"]
