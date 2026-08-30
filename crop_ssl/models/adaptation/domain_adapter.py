@@ -175,13 +175,15 @@ class CORALLoss(nn.Module):
         """
         d = source_features.shape[1]
 
-        # Source covariance
+        # Source covariance (guard against n=1 division by zero)
         xm = source_features - source_features.mean(dim=0, keepdim=True)
-        xc = (xm.T @ xm) / (source_features.shape[0] - 1)
+        n_s = max(source_features.shape[0] - 1, 1)
+        xc = (xm.T @ xm) / n_s
 
         # Target covariance
         xmt = target_features - target_features.mean(dim=0, keepdim=True)
-        xct = (xmt.T @ xmt) / (target_features.shape[0] - 1)
+        n_t = max(target_features.shape[0] - 1, 1)
+        xct = (xmt.T @ xmt) / n_t
 
         # Frobenius norm of difference
         loss = (xc - xct).pow(2).sum() / (4 * d * d)
