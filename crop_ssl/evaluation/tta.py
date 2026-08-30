@@ -57,6 +57,7 @@ class TestTimeAugmentation:
                 transforms = [
                     T.Resize(scale + 32),
                     T.RandomCrop(scale),
+                    T.Resize(224),  # Resize back to model input size
                     T.ColorJitter(0.1, 0.1, 0.1, 0.05),
                     T.RandomGrayscale(p=0.1),
                     T.ToTensor(),
@@ -69,6 +70,7 @@ class TestTimeAugmentation:
                     flip_transforms = [
                         T.Resize(scale + 32),
                         T.RandomCrop(scale),
+                        T.Resize(224),  # Resize back to model input size
                         T.RandomHorizontalFlip(p=1.0),
                         T.ColorJitter(0.1, 0.1, 0.1, 0.05),
                         T.ToTensor(),
