@@ -19,7 +19,7 @@ from typing import Dict, List, Optional
 
 import torch
 import torch.nn.functional as F
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Header, UploadFile
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -209,6 +209,8 @@ class LoginRequest(BaseModel):
 
 class LoginResponse(BaseModel):
     token: str
+    access_token: str  # Alias for client compatibility
+    token_type: str = "bearer"
     username: str
     display_name: str
     role: str
@@ -269,6 +271,7 @@ async def login(req: LoginRequest):
     token = create_token(user["username"], user["role"])
     return LoginResponse(
         token=token,
+        access_token=token,
         username=user["username"],
         display_name=user["display_name"],
         role=user["role"],
@@ -290,12 +293,24 @@ async def register(req: RegisterRequest):
 
 
 @app.get("/auth/me")
-async def get_current_user(token: Optional[str] = None):
-    """Get current user info from token."""
+async def get_current_user(
+    token: Optional[str] = None,
+    authorization: Optional[str] = Header(None),
+):
+    """Get current user info from token (query param or Authorization header)."""
     from crop_ssl.backend.auth import verify_token, get_user
-    if not token:
+    # Accept token from query param or Authorization header
+    auth_token = token
+    if not auth_token and authorization:
+        # Support 'Bearer <token>' format
+        parts = authorization.split()
+        if len(parts) == 2 and parts[0].lower() == 'bearer':
+            auth_token = parts[1]
+        else:
+            auth_token = authorization
+    if not auth_token:
         raise HTTPException(401, "Token required")
-    payload = verify_token(token)
+    payload = verify_token(auth_token)
     if not payload:
         raise HTTPException(401, "Invalid or expired token")
     user = get_user(payload["username"])
@@ -319,6 +334,17 @@ async def list_all_users():
 # Core Endpoints
 # ============================================================
 @app.get("/", response_model=HealthResponse)
+async def root():
+    return HealthResponse(
+        status="healthy",
+        device=DEVICE,
+        models_loaded=len(MODELS),
+        active_model=ACTIVE_MODEL or "none",
+        uptime=round(time.time() - START_TIME, 1),
+    )
+
+
+@app.get("/health", response_model=HealthResponse)
 async def health():
     return HealthResponse(
         status="healthy",
@@ -360,7 +386,22 @@ async def predict(
     tensor = _preprocess_image(contents)
     tensor = tensor.to(DEVICE)
 
-    model = _get_model(model_name)
+    try:
+        model = _get_model(model_name)
+    except HTTPException:
+        # If no model loaded, try to load one on-demand
+        if not MODELS:
+            try:
+                from crop_ssl.models.ssl import create_ssl_model
+                model = create_ssl_model('simclr', backbone='vit_small', embed_dim=384)
+                model.eval()
+                model.to(DEVICE)
+                MODELS['simclr_vit_small'] = model
+                ACTIVE_MODEL = 'simclr_vit_small'
+            except Exception as load_err:
+                raise HTTPException(503, f"No model loaded and on-demand loading failed: {load_err}")
+        else:
+            raise
     model_name_used = model_name or ACTIVE_MODEL
 
     start = time.time()
