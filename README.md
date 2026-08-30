@@ -177,11 +177,22 @@ MAML              |████████████████████�
 
 ## 5. Installation
 
+CropSSL requires Python 3.10+. On newer Linux distributions (PEP 668), use a
+virtual environment to avoid `externally-managed-environment` errors.
+
 ```bash
 git clone https://github.com/officialarghya29/CropSSL.git
 cd CropSSL
+
+# Create and activate a virtual environment
+python3 -m venv venv
+source venv/bin/activate      # On Windows: venv\Scripts\activate
+
+# Install all dependencies (includes torch, fastapi, uvicorn, streamlit, etc.)
 pip install -r requirements.txt
-pip install streamlit fastapi uvicorn  # For web interface
+
+# Install CropSSL as a package (enables crop_ssl.* imports & CLI entry points)
+pip install -e .
 ```
 
 ### 5.1 Dataset Preparation
@@ -364,7 +375,12 @@ selected = al.uncertainty_sampling(unlabeled_loader, n_samples=100)
 
 ```
 CropSSL/
+  pyproject.toml      # Package definition (pip install -e .)
+  requirements.txt
+  Dockerfile
+  docker-compose.yml
   crop_ssl/
+    __init__.py
     data/
       datasets/           # 13 dataset loaders with auto-download support
         plantvillage.py    # HuggingFace auto-download + Mendeley + synthetic
