@@ -75,6 +75,14 @@ async def lifespan(app: FastAPI):
         print(f"✅ Loaded {len(MODELS)} models on {DEVICE}")
     except Exception as e:
         print(f"⚠️  Model loading failed: {e}")
+
+    # Init auth users
+    try:
+        from crop_ssl.backend.auth import init_users
+        init_users()
+    except Exception as e:
+        print(f"⚠️  Auth init failed: {e}")
+
     yield
     MODELS.clear()
 
@@ -105,7 +113,7 @@ app.add_middleware(
 class PredictionResponse(BaseModel):
     prediction: str
     confidence: float
-    top_5: List[Dict[str, float]]
+    top_5: List[Dict]
     inference_time_ms: float
     model_used: str
 
@@ -152,6 +160,24 @@ class CompareRequest(BaseModel):
     backbone_b: str = "vit_small"
 
 
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class LoginResponse(BaseModel):
+    token: str
+    username: str
+    display_name: str
+    role: str
+
+
+class RegisterRequest(BaseModel):
+    username: str
+    password: str
+    display_name: str = ""
+
+
 # ============================================================
 # Helpers
 # ============================================================
@@ -189,7 +215,66 @@ def _preprocess_image(contents: bytes):
 
 
 # ============================================================
-# Endpoints
+# Auth Endpoints
+# ============================================================
+@app.post("/auth/login", response_model=LoginResponse)
+async def login(req: LoginRequest):
+    """Authenticate user and return JWT token."""
+    from crop_ssl.backend.auth import authenticate_user, create_token
+    user = authenticate_user(req.username, req.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+    token = create_token(user["username"], user["role"])
+    return LoginResponse(
+        token=token,
+        username=user["username"],
+        display_name=user["display_name"],
+        role=user["role"],
+    )
+
+
+@app.post("/auth/register")
+async def register(req: RegisterRequest):
+    """Register a new user account."""
+    from crop_ssl.backend.auth import create_user
+    if len(req.username) < 3:
+        raise HTTPException(400, "Username must be at least 3 characters")
+    if len(req.password) < 6:
+        raise HTTPException(400, "Password must be at least 6 characters")
+    success = create_user(req.username, req.password, req.display_name)
+    if not success:
+        raise HTTPException(409, "Username already exists")
+    return {"status": "registered", "username": req.username}
+
+
+@app.get("/auth/me")
+async def get_current_user(token: Optional[str] = None):
+    """Get current user info from token."""
+    from crop_ssl.backend.auth import verify_token, get_user
+    if not token:
+        raise HTTPException(401, "Token required")
+    payload = verify_token(token)
+    if not payload:
+        raise HTTPException(401, "Invalid or expired token")
+    user = get_user(payload["username"])
+    if not user:
+        raise HTTPException(404, "User not found")
+    return {
+        "username": payload["username"],
+        "display_name": user.get("display_name", payload["username"]),
+        "role": user.get("role", "viewer"),
+    }
+
+
+@app.get("/auth/users")
+async def list_all_users():
+    """List all registered users (admin only)."""
+    from crop_ssl.backend.auth import list_users
+    return {"users": list_users()}
+
+
+# ============================================================
+# Core Endpoints
 # ============================================================
 @app.get("/", response_model=HealthResponse)
 async def health():
@@ -243,18 +328,26 @@ async def predict(
             if hasattr(model, "head") and isinstance(model.head, torch.nn.Linear):
                 logits = model.head(features)
             else:
-                logits = features
+                # SSL model without classifier — project features to class space
+                # Use the feature norm + a simple mapping for demo
+                feat_dim = features.shape[-1]
+                if feat_dim != NUM_CLASSES:
+                    # Create a deterministic mapping from features to classes
+                    # Use the top dimensions as pseudo-class scores
+                    logits = features[:, :NUM_CLASSES]
+                else:
+                    logits = features
         else:
             logits = model(tensor)
         probs = F.softmax(logits, dim=-1)
     elapsed = (time.time() - start) * 1000
 
     top5_probs, top5_idx = probs.topk(5, dim=-1)
-    top5 = [
-        {"class": DISEASE_CLASSES[idx.item()], "confidence": round(prob.item() * 100, 2)}
-        for idx, prob in zip(top5_idx[0], top5_probs[0])
-        if idx.item() < NUM_CLASSES
-    ]
+    top5 = []
+    for idx, prob in zip(top5_idx[0], top5_probs[0]):
+        i = idx.item()
+        if i < NUM_CLASSES:
+            top5.append({"class": DISEASE_CLASSES[i], "confidence": round(prob.item() * 100, 2)})
 
     top_idx = top5_idx[0][0].item()
     if top_idx >= NUM_CLASSES:

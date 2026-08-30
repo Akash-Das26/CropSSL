@@ -1,18 +1,15 @@
 """
-CropSSL Frontend — Futuristic Plant Disease Detection UI.
+CropSSL Frontend — Futuristic Plant Disease Detection UI with Login.
 
-Advanced Streamlit application with:
-- Real-time disease detection with GradCAM
-- Model architecture comparison dashboard
-- Cross-domain robustness analysis with charts
-- Training monitoring with live loss curves
-- Attention map visualization
-- Multi-model ensemble interface
+Streamlit application with:
+- Secure login page with futuristic UI
+- Real-time disease detection
+- Model comparison dashboard
+- Training monitoring
+- Cross-domain analysis
 
 Usage:
     streamlit run crop_ssl/frontend/app.py
-    # or
-    python -m crop_ssl.frontend.app
 """
 
 import io
@@ -31,11 +28,11 @@ st.set_page_config(
     page_title="CropSSL — Advanced Plant Disease Detection",
     page_icon="🌿",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 # ============================================================
-# Advanced Futuristic CSS
+# Futuristic CSS
 # ============================================================
 st.markdown("""
 <style>
@@ -56,18 +53,15 @@ st.markdown("""
     --text-muted: #555577;
 }
 
-/* Global dark futuristic theme */
 .stApp {
     background: var(--bg-dark) !important;
     font-family: 'Inter', sans-serif;
 }
 
-/* Animated gradient background */
 .stApp::before {
     content: '';
     position: fixed;
-    top: 0; left: 0;
-    width: 100%; height: 100%;
+    top: 0; left: 0; width: 100%; height: 100%;
     background:
         radial-gradient(ellipse at 20% 50%, rgba(0, 255, 136, 0.03) 0%, transparent 50%),
         radial-gradient(ellipse at 80% 20%, rgba(0, 187, 255, 0.03) 0%, transparent 50%),
@@ -81,7 +75,6 @@ st.markdown("""
     100% { opacity: 1.0; }
 }
 
-/* Main header with neon glow */
 .main-header {
     background: linear-gradient(135deg, var(--neon-green) 0%, var(--neon-blue) 50%, var(--neon-purple) 100%);
     -webkit-background-clip: text;
@@ -91,7 +84,6 @@ st.markdown("""
     text-align: center;
     padding: 0.5rem 0;
     letter-spacing: -1px;
-    text-shadow: 0 0 40px rgba(0, 255, 136, 0.3);
 }
 
 .sub-header {
@@ -104,7 +96,6 @@ st.markdown("""
     text-transform: uppercase;
 }
 
-/* Neon border cards */
 .neon-card {
     background: var(--bg-card);
     border: 1px solid var(--border);
@@ -117,7 +108,7 @@ st.markdown("""
 
 .neon-card:hover {
     border-color: var(--neon-green);
-    box-shadow: 0 0 30px rgba(0, 255, 136, 0.1), inset 0 0 30px rgba(0, 255, 136, 0.02);
+    box-shadow: 0 0 30px rgba(0, 255, 136, 0.1);
 }
 
 .neon-card::before {
@@ -134,39 +125,14 @@ st.markdown("""
     100% { left: 100%; }
 }
 
-/* Metric display */
-.metric-glow {
-    font-size: 2.8rem;
-    font-weight: 800;
-    background: linear-gradient(135deg, var(--neon-green), var(--neon-blue));
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    font-family: 'JetBrains Mono', monospace;
-}
-
-.metric-label {
-    font-size: 0.75rem;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 2px;
-    margin-top: 0.3rem;
-}
-
-/* Prediction result card */
 .prediction-neon {
     background: var(--bg-card);
     border: 2px solid var(--neon-green);
     border-radius: 20px;
     padding: 2rem;
     text-align: center;
-    position: relative;
-    box-shadow: 0 0 40px rgba(0, 255, 136, 0.15), inset 0 0 40px rgba(0, 255, 136, 0.03);
+    box-shadow: 0 0 40px rgba(0, 255, 136, 0.15);
     animation: borderGlow 2s ease-in-out infinite alternate;
-}
-
-@keyframes borderGlow {
-    0% { box-shadow: 0 0 20px rgba(0, 255, 136, 0.1); }
-    100% { box-shadow: 0 0 50px rgba(0, 255, 136, 0.25); }
 }
 
 .prediction-neon.diseased {
@@ -174,20 +140,11 @@ st.markdown("""
     box-shadow: 0 0 40px rgba(255, 68, 102, 0.15);
 }
 
-.disease-name {
-    font-size: 1.6rem;
-    font-weight: 700;
-    color: var(--text-primary);
-    margin: 0.5rem 0;
+@keyframes borderGlow {
+    0% { box-shadow: 0 0 20px rgba(0, 255, 136, 0.1); }
+    100% { box-shadow: 0 0 50px rgba(0, 255, 136, 0.25); }
 }
 
-.confidence-text {
-    font-size: 2rem;
-    font-weight: 800;
-    font-family: 'JetBrains Mono', monospace;
-}
-
-/* Progress bars */
 .progress-track {
     height: 6px;
     background: #1a1a2e;
@@ -206,20 +163,11 @@ st.markdown("""
 .progress-fill.medium { background: linear-gradient(90deg, var(--neon-blue), var(--neon-purple)); }
 .progress-fill.low { background: linear-gradient(90deg, var(--neon-purple), var(--neon-red)); }
 
-/* Sidebar */
 [data-testid="stSidebar"] {
     background: linear-gradient(180deg, #080810 0%, #0f0f1a 100%) !important;
     border-right: 1px solid var(--border);
 }
 
-[data-testid="stSidebar"] .stMarkdown h3 {
-    color: var(--neon-green);
-    font-size: 0.85rem;
-    text-transform: uppercase;
-    letter-spacing: 2px;
-}
-
-/* Buttons */
 .stButton > button {
     background: linear-gradient(135deg, rgba(0, 255, 136, 0.15), rgba(0, 187, 255, 0.15)) !important;
     color: var(--neon-green) !important;
@@ -237,7 +185,6 @@ st.markdown("""
     border-color: var(--neon-green) !important;
 }
 
-/* Tabs */
 .stTabs [data-baseweb="tab-list"] {
     gap: 4px;
     background: var(--bg-card);
@@ -251,17 +198,14 @@ st.markdown("""
     color: var(--text-muted) !important;
     padding: 0.5rem 1rem;
     font-weight: 500;
-    font-size: 0.85rem;
 }
 
 .stTabs [aria-selected="true"] {
     background: var(--bg-card-hover) !important;
     color: var(--neon-green) !important;
     border-bottom: none !important;
-    box-shadow: 0 0 10px rgba(0, 255, 136, 0.1);
 }
 
-/* Section dividers */
 .section-divider {
     border: none;
     height: 1px;
@@ -269,7 +213,6 @@ st.markdown("""
     margin: 1.5rem 0;
 }
 
-/* Status badges */
 .badge {
     display: inline-block;
     padding: 0.2rem 0.6rem;
@@ -284,28 +227,52 @@ st.markdown("""
 .badge-red { background: rgba(255, 68, 102, 0.15); color: var(--neon-red); }
 .badge-purple { background: rgba(170, 85, 255, 0.15); color: var(--neon-purple); }
 
-/* Tables */
-table {
-    width: 100%;
-    border-collapse: collapse;
-}
-
-/* Scrollbar */
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: var(--bg-dark); }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--neon-green); }
 
-/* Progress bar override */
 .stProgress > div > div > div > div {
     background: linear-gradient(90deg, var(--neon-green), var(--neon-blue)) !important;
 }
+
+.login-container {
+    max-width: 420px;
+    margin: 3rem auto;
+    padding: 2.5rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    box-shadow: 0 0 60px rgba(0, 255, 136, 0.08);
+}
+
+.login-header {
+    text-align: center;
+    margin-bottom: 2rem;
+}
+
+.login-title {
+    font-size: 2rem;
+    font-weight: 900;
+    background: linear-gradient(135deg, var(--neon-green), var(--neon-blue));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin: 0.5rem 0;
+}
+
+.login-subtitle {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
 
 # ============================================================
-# Helper Functions
+# Helpers
 # ============================================================
 @st.cache_resource
 def load_model(method: str, backbone: str):
@@ -356,12 +323,87 @@ DISEASE_CLASSES = [
     "Tomato Healthy",
 ]
 
+DEFAULT_CREDENTIALS = {
+    "admin": {"password": "admin123", "role": "admin"},
+    "researcher": {"password": "research2026", "role": "researcher"},
+    "demo": {"password": "demo123", "role": "viewer"},
+}
+
+
+def authenticate(username: str, password: str):
+    """Authenticate user against local credential store."""
+    user = DEFAULT_CREDENTIALS.get(username)
+    if user and user["password"] == password:
+        return {"username": username, "role": user["role"]}
+    return None
+
 
 # ============================================================
-# Sidebar
+# Session State Init
 # ============================================================
-with st.sidebar:
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+    st.session_state.user = None
+if "model" not in st.session_state:
+    st.session_state.model = None
+    st.session_state.model_name = None
+
+
+# ============================================================
+# LOGIN PAGE
+# ============================================================
+if not st.session_state.authenticated:
     st.markdown("""
+    <div class="login-container">
+        <div class="login-header">
+            <div style="font-size: 3rem;">🌿</div>
+            <div class="login-title">CropSSL</div>
+            <div class="login-subtitle">Secure Access Portal</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    col1, col2, col3 = st.columns([1, 1, 1])
+    with col2:
+        with st.form("login_form"):
+            st.markdown("### 🔐 Sign In")
+            username = st.text_input("Username", placeholder="Enter username")
+            password = st.text_input("Password", type="password", placeholder="Enter password")
+            login_btn = st.form_submit_button("🚀 Sign In", width="stretch")
+
+            if login_btn:
+                if not username or not password:
+                    st.error("Please enter both username and password")
+                else:
+                    user = authenticate(username, password)
+                    if user:
+                        st.session_state.authenticated = True
+                        st.session_state.user = user
+                        st.rerun()
+                    else:
+                        st.error("Invalid credentials")
+
+        st.markdown("---")
+        st.markdown("""
+        <div style="text-align: center; font-size: 0.75rem; color: #555577;">
+            <p><strong>Default Credentials:</strong></p>
+            <p><code>admin</code> / <code>admin123</code> — Full access</p>
+            <p><code>researcher</code> / <code>research2026</code> — Research access</p>
+            <p><code>demo</code> / <code>demo123</code> — View only</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.stop()
+
+
+# ============================================================
+# MAIN APP (Authenticated)
+# ============================================================
+
+# Sidebar
+with st.sidebar:
+    user = st.session_state.user
+    st.markdown(f"""
     <div style="text-align: center; padding: 1rem 0; margin-bottom: 1rem;">
         <div style="font-size: 2rem;">🌿</div>
         <div style="color: #00ff88; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 3px; margin-top: 0.3rem;">
@@ -370,12 +412,22 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
+    st.markdown(f"""
+    <div class="neon-card" style="padding: 1rem; margin-bottom: 1rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span class="badge badge-green">LOGGED IN</span>
+            <span class="badge badge-blue">{user['role'].upper()}</span>
+        </div>
+        <div style="color: #e8e8f0; font-size: 0.85rem; margin-top: 0.5rem;">
+            {user['username']}
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
     st.markdown("### ⚙️ Model Configuration")
 
-    method = st.selectbox("SSL Method", ["simclr", "dinov2", "moco_v3", "mae"], index=0,
-                          help="Self-supervised learning method")
-    backbone = st.selectbox("Backbone", ["vit_small", "vit_base", "vit_large"], index=0,
-                            help="Vision Transformer backbone")
+    method = st.selectbox("SSL Method", ["simclr", "dinov2", "moco_v3", "mae"], index=0)
+    backbone = st.selectbox("Backbone", ["vit_small", "vit_base", "vit_large"], index=0)
 
     if st.button("🚀 Load Model", width="stretch"):
         with st.spinner("Initializing model..."):
@@ -383,52 +435,33 @@ with st.sidebar:
                 model = load_model(method, backbone)
                 st.session_state["model"] = model
                 st.session_state["model_name"] = f"{method}_{backbone}"
-                st.session_state["model_method"] = method
                 params = sum(p.numel() for p in model.parameters())
                 st.success(f"✅ Loaded ({params:,} params)")
             except Exception as e:
                 st.error(f"❌ {e}")
 
-    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-
-    st.markdown("### 📊 System Status")
-
-    if "model" in st.session_state:
+    if st.session_state.get("model"):
         model_obj = st.session_state["model"]
         params = sum(p.numel() for p in model_obj.parameters())
-        device = str(next(model_obj.parameters()).device)
         st.markdown(f"""
-        <div class="neon-card" style="padding: 1rem; margin-bottom: 0.5rem;">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <span class="badge badge-green">ACTIVE</span>
-                <span style="color: #8888aa; font-size: 0.75rem;">{device.upper()}</span>
-            </div>
-            <div style="color: #e8e8f0; font-size: 0.85rem; margin-top: 0.5rem; font-family: 'JetBrains Mono', monospace;">
+        <div class="neon-card" style="padding: 1rem; margin-top: 1rem;">
+            <span class="badge badge-green">ACTIVE</span>
+            <div style="color: #e8e8f0; font-size: 0.8rem; margin-top: 0.5rem; font-family: 'JetBrains Mono', monospace;">
                 {st.session_state['model_name']}
             </div>
-            <div style="color: #555577; font-size: 0.7rem; margin-top: 0.2rem;">
-                {params:,} parameters
-            </div>
+            <div style="color: #555577; font-size: 0.7rem;">{params:,} params</div>
         </div>
         """, unsafe_allow_html=True)
-    else:
-        st.warning("No model loaded")
 
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+    if st.button("🚪 Logout", width="stretch"):
+        st.session_state.authenticated = False
+        st.session_state.user = None
+        st.session_state.model = None
+        st.session_state.model_name = None
+        st.rerun()
 
-    st.markdown("### 🔗 Resources")
-    st.markdown("""
-    <div style="font-size: 0.8rem; line-height: 2;">
-        <a href="https://github.com/officialarghya29/CropSSL" target="_blank" style="color: #00bbff;">📁 GitHub</a><br>
-        <a href="http://localhost:8000/docs" target="_blank" style="color: #00bbff;">📡 API Docs</a><br>
-        <a href="https://paperswithcode.com/task/plant-disease-detection" target="_blank" style="color: #aa55ff;">📚 Literature</a>
-    </div>
-    """, unsafe_allow_html=True)
-
-
-# ============================================================
-# Main Content
-# ============================================================
+# Header
 logo_path = Path(__file__).parent.parent.parent / "assets" / "logo.png"
 if logo_path.exists():
     st.image(str(logo_path), width=120)
@@ -440,43 +473,32 @@ st.markdown(
 )
 
 # Tabs
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "🔍 Detection",
-    "⚡ Compare",
-    "🎓 Training",
-    "📊 Cross-Domain",
-    "🧠 Architecture",
+tab1, tab2, tab3, tab4 = st.tabs([
+    "🔍 Detection", "⚡ Compare", "🎓 Training", "📊 Cross-Domain",
 ])
 
-
 # ============================================================
-# Tab 1: Disease Detection
+# Tab 1: Detection
 # ============================================================
 with tab1:
     col1, col2 = st.columns([1, 1])
 
     with col1:
         st.markdown("### 📸 Upload Leaf Image")
-        uploaded_file = st.file_uploader(
-            "Choose a plant leaf image",
-            type=["jpg", "jpeg", "png"],
-        )
-
+        uploaded_file = st.file_uploader("Choose a plant leaf image", type=["jpg", "jpeg", "png"])
         if uploaded_file:
             image = Image.open(uploaded_file)
             st.image(image, caption="Uploaded Image", width="stretch")
 
     with col2:
-        if uploaded_file and "model" in st.session_state:
+        if uploaded_file and st.session_state.get("model"):
             st.markdown("### 🎯 Diagnosis Results")
-
             with st.spinner("Analyzing..."):
                 probs, inference_time = predict_image(st.session_state["model"], image)
 
             top5_probs, top5_idx = probs.topk(5, dim=-1)
             top_idx = top5_idx[0][0].item()
             top_prob = top5_probs[0][0].item()
-
             if top_idx >= len(DISEASE_CLASSES):
                 top_idx = 0
 
@@ -488,13 +510,9 @@ with tab1:
             st.markdown(f"""
             <div class="{border_class}">
                 <div style="font-size: 3rem;">{icon}</div>
-                <div class="disease-name">{DISEASE_CLASSES[top_idx]}</div>
-                <div class="confidence-text" style="color: {color};">
-                    {top_prob*100:.1f}%
-                </div>
-                <div style="color: #555577; font-size: 0.75rem; margin-top: 0.5rem;">
-                    Inference: {inference_time:.1f}ms · Model: {st.session_state.get('model_name', 'N/A')}
-                </div>
+                <div style="font-size: 1.6rem; font-weight: 700; color: #e8e8f0; margin: 0.5rem 0;">{DISEASE_CLASSES[top_idx]}</div>
+                <div style="font-size: 2rem; font-weight: 800; font-family: 'JetBrains Mono', monospace; color: {color};">{top_prob*100:.1f}%</div>
+                <div style="color: #555577; font-size: 0.75rem; margin-top: 0.5rem;">Inference: {inference_time:.1f}ms · Model: {st.session_state.get('model_name', 'N/A')}</div>
             </div>
             """, unsafe_allow_html=True)
 
@@ -508,23 +526,17 @@ with tab1:
                     idx = 0
                 bar_class = "top" if i == 0 else ("medium" if i < 3 else "low")
                 text_color = "#00ff88" if i == 0 else "#8888aa"
-
                 st.markdown(f"""
                 <div style="margin: 0.5rem 0;">
                     <div style="display: flex; justify-content: space-between; margin-bottom: 0.2rem;">
-                        <span style="color: {text_color}; font-size: 0.8rem; font-weight: 600;">
-                            #{i+1} {DISEASE_CLASSES[idx]}
-                        </span>
-                        <span style="color: {text_color}; font-size: 0.8rem; font-family: 'JetBrains Mono', monospace;">
-                            {prob*100:.1f}%
-                        </span>
+                        <span style="color: {text_color}; font-size: 0.8rem; font-weight: 600;">#{i+1} {DISEASE_CLASSES[idx]}</span>
+                        <span style="color: {text_color}; font-size: 0.8rem; font-family: 'JetBrains Mono', monospace;">{prob*100:.1f}%</span>
                     </div>
                     <div class="progress-track">
                         <div class="progress-fill {bar_class}" style="width: {prob*100}%"></div>
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
-
         elif uploaded_file:
             st.warning("⚠️ Load a model from the sidebar first")
         else:
@@ -536,22 +548,18 @@ with tab1:
             </div>
             """, unsafe_allow_html=True)
 
-
 # ============================================================
-# Tab 2: Model Comparison
+# Tab 2: Compare
 # ============================================================
 with tab2:
     st.markdown("### ⚡ SSL Method Comparison")
-
     col1, col2, col3, col4 = st.columns(4)
-    methods = [
+    for col, (name, mtype, loss, color) in zip([col1, col2, col3, col4], [
         ("DINOv2", "Self-Distillation", "Cross-Entropy", "#00ff88"),
         ("MoCo v3", "Contrastive", "InfoNCE", "#00bbff"),
         ("SimCLR", "Contrastive", "NT-Xent", "#aa55ff"),
         ("MAE", "Generative", "MSE", "#ffbb00"),
-    ]
-
-    for col, (name, mtype, loss, color) in zip([col1, col2, col3, col4], methods):
+    ]):
         with col:
             st.markdown(f"""
             <div class="neon-card" style="text-align: center; border-top: 3px solid {color};">
@@ -562,49 +570,27 @@ with tab2:
             """, unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
-
-    st.markdown("### 🏗️ Backbone Architectures")
-
+    st.markdown("### 🏗️ Backbones")
     bb_cols = st.columns(3)
-    bb_info = [
-        ("ViT-S/16", "21.7M", 384, 12, "Fast", "#00ff88"),
-        ("ViT-B/16", "85.8M", 768, 12, "Medium", "#00bbff"),
-        ("ViT-L/16", "304.3M", 1024, 24, "Slow", "#aa55ff"),
-    ]
-
-    for col, (name, params, dim, layers, speed, color) in zip(bb_cols, bb_info):
+    for col, (name, params, dim, color) in zip(bb_cols, [
+        ("ViT-S/16", "21.7M", 384, "#00ff88"),
+        ("ViT-B/16", "85.8M", 768, "#00bbff"),
+        ("ViT-L/16", "304.3M", 1024, "#aa55ff"),
+    ]):
         with col:
             st.markdown(f"""
             <div class="neon-card" style="text-align: center; border-top: 3px solid {color};">
                 <div style="color: {color}; font-size: 1.2rem; font-weight: 800; font-family: 'JetBrains Mono', monospace;">{name}</div>
                 <div style="color: #e8e8f0; font-size: 2rem; font-weight: 800; font-family: 'JetBrains Mono', monospace; margin: 0.5rem 0;">{params}</div>
-                <div style="color: #8888aa; font-size: 0.75rem;">Dim: {dim} · Layers: {layers} · Speed: {speed}</div>
+                <div style="color: #8888aa; font-size: 0.75rem;">Dim: {dim}</div>
             </div>
             """, unsafe_allow_html=True)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    st.markdown("### 📐 Parameter Efficiency Comparison")
-
-    try:
-        import pandas as pd
-
-        param_data = pd.DataFrame({
-            "Method": ["Linear Probe", "LoRA (r=4)", "LoRA (r=8)", "LoRA (r=16)", "Prototypical", "MAML", "Full Fine-tune"],
-            "Trainable %": [0.02, 0.53, 1.03, 1.97, 0.0, 100.0, 100.0],
-            "Typical Accuracy": [81.2, 85.7, 87.3, 88.1, 88.3, 89.1, 84.5],
-        })
-        st.bar_chart(param_data.set_index("Method")["Trainable %"])
-    except ImportError:
-        st.info("Install pandas for comparison charts: `pip install pandas`")
-
 
 # ============================================================
 # Tab 3: Training
 # ============================================================
 with tab3:
     st.markdown("### 🎓 SSL Pre-Training")
-
     col1, col2 = st.columns(2)
     with col1:
         train_method = st.selectbox("Method", ["simclr", "dinov2", "moco_v3", "mae"], key="train_m")
@@ -623,7 +609,6 @@ with tab3:
             device = "cuda" if torch.cuda.is_available() else "cpu"
             model.to(device)
             model.train()
-
             optimizer = torch.optim.Adam(model.parameters(), lr=train_lr)
             from torch.utils.data import TensorDataset, DataLoader
             ds = TensorDataset(torch.randn(64, 3, 224, 224), torch.zeros(64))
@@ -647,44 +632,27 @@ with tab3:
                     optimizer.step()
                     total_loss += result["loss"].item()
                     n += 1
-
                 avg_loss = total_loss / max(n, 1)
                 losses.append(avg_loss)
                 progress_bar.progress((epoch + 1) / train_epochs)
-                status_text.markdown(
-                    f"**Epoch {epoch+1}/{train_epochs}** — Loss: `{avg_loss:.4f}`"
-                )
+                status_text.markdown(f"**Epoch {epoch+1}/{train_epochs}** — Loss: `{avg_loss:.4f}`")
                 loss_chart.line_chart(losses)
 
             st.success(f"✅ Training complete! Final loss: **{losses[-1]:.4f}**")
         except Exception as e:
             st.error(f"❌ Training failed: {e}")
 
-
 # ============================================================
-# Tab 4: Cross-Domain Analysis
+# Tab 4: Cross-Domain
 # ============================================================
 with tab4:
     st.markdown("### 📊 Cross-Domain Robustness Analysis")
-
-    st.markdown("""
-    <div class="neon-card">
-        <div style="display: flex; justify-content: space-between; margin-bottom: 1rem;">
-            <span class="badge badge-green">SOURCE: PlantVillage</span>
-            <span class="badge badge-red">TARGET: PlantDoc</span>
-        </div>
-    """, unsafe_allow_html=True)
-
     try:
         import pandas as pd
-
         shift_data = pd.DataFrame({
             "Source → Target": [
-                "PlantVillage → PlantDoc",
-                "PlantVillage → FieldPlant",
-                "PlantVillage → Cassava",
-                "PlantVillage → BRACOL",
-                "PlantVillage → DiaMOS",
+                "PlantVillage → PlantDoc", "PlantVillage → FieldPlant",
+                "PlantVillage → Cassava", "PlantVillage → BRACOL", "PlantVillage → DiaMOS",
             ],
             "Source Acc (%)": [96.2, 96.2, 96.2, 96.2, 96.2],
             "Target Acc (%)": [71.8, 68.5, 74.2, 79.1, 73.6],
@@ -693,145 +661,26 @@ with tab4:
         })
         st.dataframe(shift_data, use_container_width=True, hide_index=True)
     except ImportError:
-        st.info("Install pandas for analysis charts")
-
-    st.markdown("</div>", unsafe_allow_html=True)
+        st.info("Install pandas for charts")
 
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown("### 🔄 Adaptation Recovery")
-
     try:
         import pandas as pd
-
         recovery_data = pd.DataFrame({
-            "Method": ["No Adapt", "Linear Probe", "LoRA (r=8)", "ProtoNet", "MAML", "DANN+LoRA", "Full Fine-tune"],
-            "Target Accuracy (%)": [71.8, 81.2, 87.3, 88.3, 89.1, 91.2, 84.5],
-            "Trainable Params (%)": [0, 0.02, 1.03, 0.0, 100, 1.05, 100],
+            "Method": ["No Adapt", "Linear", "LoRA (r=8)", "ProtoNet", "MAML", "DANN+LoRA", "Full FT"],
+            "Accuracy (%)": [71.8, 81.2, 85.7, 88.3, 89.1, 91.2, 84.5],
         })
-        st.bar_chart(recovery_data.set_index("Method")["Target Accuracy (%)"])
-        st.caption("Higher is better — few-shot methods recover 15-20% accuracy on target domain")
+        st.bar_chart(recovery_data.set_index("Method")["Accuracy (%)"])
+        st.caption("Higher is better — few-shot methods recover 15-20% accuracy")
     except ImportError:
         st.info("Install pandas for charts")
 
-
-# ============================================================
-# Tab 5: Architecture Deep-Dive
-# ============================================================
-with tab5:
-    st.markdown("### 🧠 Architecture Visualization")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.markdown("""
-        <div class="neon-card">
-            <h4 style="color: #00ff88; margin-bottom: 1rem;">SSL Pipeline</h4>
-            <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: #8888aa; line-height: 2;">
-                ┌─────────────────┐<br>
-                │ &nbsp;Input Image&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; │<br>
-                └────────┬────────┘<br>
-                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│<br>
-                ┌────────▼────────┐<br>
-                │ &nbsp;ViT Backbone&nbsp;&nbsp;&nbsp; │<br>
-                │ (Patch → Embed → │<br>
-                │ &nbsp;Transformer) &nbsp;&nbsp;│<br>
-                └────────┬────────┘<br>
-                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│<br>
-                ┌────────▼────────┐<br>
-                │ &nbsp;SSL Head&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; │<br>
-                │ (DINO/MoCo/     │<br>
-                │ &nbsp;SimCLR/MAE) &nbsp;&nbsp; │<br>
-                └────────┬────────┘<br>
-                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│<br>
-                ┌────────▼────────┐<br>
-                │ &nbsp;Adaptation&nbsp;&nbsp;&nbsp;&nbsp; │<br>
-                │ (LoRA/Proto/     │<br>
-                │ &nbsp;MAML/Linear) &nbsp;&nbsp;│<br>
-                └────────┬────────┘<br>
-                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│<br>
-                ┌────────▼────────┐<br>
-                │ &nbsp;Diagnosis&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; │<br>
-                └─────────────────┘
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with col2:
-        st.markdown("""
-        <div class="neon-card">
-            <h4 style="color: #00bbff; margin-bottom: 1rem;">Key Innovations</h4>
-            <div style="font-size: 0.85rem; line-height: 2.2; color: #e8e8f0;">
-                <div style="display: flex; align-items: center; gap: 0.5rem;">
-                    <span class="badge badge-green">01</span>
-                    <span>Multi-domain SSL pre-training on PlantVillage</span>
-                </div>
-                <div style="display: flex; align-items: center; gap: 0.5rem;">
-                    <span class="badge badge-blue">02</span>
-                    <span>LoRA-efficient adaptation (0.5% params)</span>
-                </div>
-                <div style="display: flex; align-items: center; gap: 0.5rem;">
-                    <span class="badge badge-purple">03</span>
-                    <span>Domain-adversarial alignment (DANN/MMD/CORAL)</span>
-                </div>
-                <div style="display: flex; align-items: center; gap: 0.5rem;">
-                    <span class="badge badge-red">04</span>
-                    <span>Prototypical few-shot classification</span>
-                </div>
-                <div style="display: flex; align-items: center; gap: 0.5rem;">
-                    <span class="badge badge-green">05</span>
-                    <span>13 cross-domain benchmark datasets</span>
-                </div>
-                <div style="display: flex; align-items: center; gap: 0.5rem;">
-                    <span class="badge badge-blue">06</span>
-                    <span>GradCAM attention visualization</span>
-                </div>
-                <div style="display: flex; align-items: center; gap: 0.5rem;">
-                    <span class="badge badge-purple">07</span>
-                    <span>Temperature & Platt calibration</span>
-                </div>
-                <div style="display: flex; align-items: center; gap: 0.5rem;">
-                    <span class="badge badge-red">08</span>
-                    <span>Active learning for smart annotation</span>
-                </div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    st.markdown("### 📋 Dataset Catalog")
-
-    try:
-        import pandas as pd
-
-        ds_data = pd.DataFrame({
-            "Dataset": ["PlantVillage", "PlantDoc", "Cassava", "PlantSeg", "FieldPlant",
-                        "DiaMOS", "BRACOL", "RiceLeaf", "CoffeeLeaf", "PlantPathology"],
-            "Images": ["54,309", "2,598", "21,397", "11,400+", "5,170",
-                      "3,505", "1,747", "~5,000", "~5,000", "1,821"],
-            "Classes": [38, 27, 5, 115, 27, 10, 5, 7, 5, 4],
-            "Domain": ["Lab", "Field", "Field", "Wild", "Plantation",
-                      "Field", "Field", "Field", "Field", "Lab"],
-            "Unique Feature": ["Lab-quality baseline", "Real-world shift", "Farmer phones",
-                              "Segmentation masks", "Expert annotations",
-                              "Severity 0-100%", "5 phone sensors", "Rice diseases",
-                              "Coffee diseases", "Severity levels"],
-        })
-        st.dataframe(ds_data, use_container_width=True, hide_index=True)
-    except ImportError:
-        st.info("Install pandas for dataset table")
-
-
-# ============================================================
 # Footer
-# ============================================================
 st.markdown("""
 <div style="text-align: center; padding: 3rem 0 1rem; color: #333355; font-size: 0.7rem;">
     <div class="section-divider"></div>
-    <p style="margin-top: 1rem;">
-        CropSSL · Cross-Domain Robustness of Self-Supervised Vision Foundation Models<br>
-        <span style="color: #00ff88;">162 Tests Passing</span> · <span style="color: #00bbff;">13 Datasets</span> · <span style="color: #aa55ff;">4 SSL Methods</span>
-    </p>
+    <p style="margin-top: 1rem;">CropSSL · 178 Tests · 13 Datasets · 4 SSL Methods</p>
 </div>
 """, unsafe_allow_html=True)
 
