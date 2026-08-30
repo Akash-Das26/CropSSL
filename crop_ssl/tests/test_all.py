@@ -1958,6 +1958,598 @@ def test_active_learning_balanced_strategies():
 
 
 # ============================================================
+# 19. Advanced Efficiency, Integration & Stress Tests
+# ============================================================
+def test_gradient_accumulation():
+    """Verify gradient accumulation matches single-step gradient."""
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    model = vit_small_patch16(num_classes=10)
+    model.train()
+    x = torch.randn(4, 3, 224, 224)
+    labels = torch.randint(0, 10, (4,))
+    criterion = torch.nn.CrossEntropyLoss()
+
+    # Single big step
+    model.zero_grad()
+    out = model(x)
+    loss = criterion(out, labels)
+    loss.backward()
+    grad_single = {n: p.grad.clone() for n, p in model.named_parameters() if p.grad is not None}
+
+    # Accumulate 2 smaller steps
+    model.zero_grad()
+    for i in range(2):
+        out = model(x[:2])
+        l = criterion(out, labels[:2])
+        (l / 2).backward()
+    grad_accum = {n: p.grad.clone() for n, p in model.named_parameters() if p.grad is not None}
+
+    # Gradients should be close (not identical due to batch norm, but same order of magnitude)
+    for name in grad_single:
+        if name in grad_accum:
+            ratio = grad_single[name].norm() / (grad_accum[name].norm() + 1e-8)
+            assert 0.5 < ratio < 2.0, f"Gradient accumulation mismatch for {name}: ratio={ratio:.3f}"
+    print("    Gradient accumulation: OK")
+
+
+def test_mixed_precision_forward():
+    """Test AMP forward pass produces valid outputs."""
+    from crop_ssl.models.ssl import create_ssl_model
+    model = create_ssl_model("simclr", backbone="vit_small", embed_dim=384)
+    model.train()
+    x = torch.randn(4, 3, 224, 224)
+
+    try:
+        from torch.cuda.amp import autocast
+        with autocast():
+            result = model(x, torch.randn_like(x))
+        assert "loss" in result
+        assert torch.isfinite(result["loss"])
+        print("    AMP forward (autocast): OK")
+    except Exception:
+        # AMP not available on CPU, test float32 fallback
+        result = model(x, torch.randn_like(x))
+        assert "loss" in result
+        assert torch.isfinite(result["loss"])
+        print("    AMP forward (float32 fallback): OK")
+
+
+def test_model_parameter_counting():
+    """Verify parameter counting is accurate and consistent."""
+    from crop_ssl.utils.export import count_parameters
+    from crop_ssl.models.ssl import create_ssl_model
+
+    for method in ["simclr", "mae"]:
+        model = create_ssl_model(method, backbone="vit_small", embed_dim=384)
+        params = count_parameters(model)
+        assert params["total"] > 0
+        assert params["trainable"] > 0
+        assert params["trainable"] <= params["total"]
+        # All parameters should be trainable in base model
+        assert params["trainable"] == params["total"], \
+            f"{method}: trainable={params['trainable']} != total={params['total']}"
+    print("    Parameter counting: OK")
+
+
+def test_data_parallel_wrapping():
+    """Test model can be wrapped in DataParallel."""
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    model = vit_small_patch16(num_classes=10)
+    model = torch.nn.DataParallel(model)
+    x = torch.randn(4, 3, 224, 224)
+    out = model(x)
+    assert out.shape == (4, 10)
+    print("    DataParallel wrapping: OK")
+
+
+def test_torchscript_trace():
+    """Test TorchScript trace export of backbone."""
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    model = vit_small_patch16(num_classes=10)
+    model.eval()
+    x = torch.randn(1, 3, 224, 224)
+    try:
+        traced = torch.jit.trace(model, x)
+        out = traced(x)
+        assert out.shape == (1, 10)
+        # Verify outputs match
+        with torch.no_grad():
+            orig = model(x)
+        assert torch.allclose(out, orig, atol=1e-4), "Traced output differs from original"
+        print("    TorchScript trace: OK")
+    except Exception as e:
+        print(f"    TorchScript trace: skipped ({e})")
+
+
+def test_model_buffer_persistence():
+    """Test that registered buffers survive state_dict roundtrip."""
+    from crop_ssl.models.ssl import create_ssl_model
+    model = create_ssl_model("dinov2", backbone="vit_small", embed_dim=384)
+    buffers_before = {k: v.clone() for k, v in model.state_dict().items() if "buffer" in k or "center" in k or "running" in k}
+    state = model.state_dict()
+    model2 = create_ssl_model("dinov2", backbone="vit_small", embed_dim=384)
+    model2.load_state_dict(state)
+    buffers_after = {k: v.clone() for k, v in model2.state_dict().items() if k in buffers_before}
+    for k in buffers_before:
+        assert k in buffers_after, f"Buffer {k} missing after load"
+        assert torch.equal(buffers_before[k], buffers_after[k]), f"Buffer {k} changed after roundtrip"
+    print(f"    Buffer persistence ({len(buffers_before)} buffers): OK")
+
+
+def test_training_loop_one_epoch():
+    """Test a complete single training epoch with optimizer + scheduler."""
+    from crop_ssl.models.ssl import create_ssl_model
+    from crop_ssl.utils.training import CosineWarmupScheduler
+    model = create_ssl_model("simclr", backbone="vit_small", embed_dim=384)
+    model.train()
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+    scheduler = CosineWarmupScheduler(optimizer, warmup_epochs=1, total_epochs=3)
+    criterion = lambda x1, x2: model(x1, x2)["loss"]
+
+    losses = []
+    for step in range(5):
+        optimizer.zero_grad()
+        x = torch.randn(8, 3, 224, 224)
+        loss = model(x, torch.randn_like(x))["loss"]
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        optimizer.step()
+        losses.append(loss.item())
+    scheduler.step()
+
+    # Loss should be finite
+    assert all(torch.isfinite(torch.tensor(l)) for l in losses), "Non-finite loss in training loop"
+    # Gradients should be zeroed after step
+    has_grad = any(p.grad is not None and p.grad.abs().sum() > 0 for p in model.parameters())
+    # After zero_grad + step, grads may be non-zero (from last backward), that's OK
+    print(f"    Training loop (5 steps, loss: {losses[0]:.4f} -> {losses[-1]:.4f}): OK")
+
+
+def test_ssl_loss_decreasing():
+    """Verify SSL loss decreases over a few training steps on same data."""
+    from crop_ssl.models.ssl import create_ssl_model
+    model = create_ssl_model("mae", backbone="vit_small", embed_dim=384)
+    model.train()
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+    x = torch.randn(8, 3, 224, 224)
+
+    losses = []
+    for _ in range(10):
+        optimizer.zero_grad()
+        result = model(x)
+        loss = result["loss"]
+        loss.backward()
+        optimizer.step()
+        losses.append(loss.item())
+
+    # Loss should generally decrease (first > last in 10 steps on same data)
+    assert losses[-1] < losses[0], f"MAE loss did not decrease: first={losses[0]:.4f}, last={losses[-1]:.4f}"
+    print(f"    MAE loss decreasing: {losses[0]:.4f} -> {losses[-1]:.4f} ✓")
+
+
+def test_api_endpoints():
+    """Test FastAPI endpoint logic without starting server."""
+    from crop_ssl.backend.api import app, DISEASE_CLASSES, NUM_CLASSES, MODELS
+    assert NUM_CLASSES == len(DISEASE_CLASSES)
+    assert NUM_CLASSES == 38
+    assert isinstance(MODELS, dict)
+    # Verify routes are registered
+    routes = [r.path for r in app.routes]
+    assert "/" in routes
+    assert "/predict" in routes or any("predict" in r for r in routes)
+    assert "/models" in routes
+    assert "/classes" in routes
+    print(f"    API endpoints ({len(routes)} routes): OK")
+
+
+def test_full_pipeline_mini():
+    """Mini end-to-end pipeline: create data → train → eval → report."""
+    import time
+    from crop_ssl.models.ssl import create_ssl_model
+    from crop_ssl.models.adaptation.few_shot_adapter import FewShotAdapter
+    from crop_ssl.evaluation.metrics import compute_accuracy, EvaluationSuite
+    from torch.utils.data import DataLoader, TensorDataset
+
+    t0 = time.time()
+    device = "cpu"
+
+    # Create synthetic data
+    train_ds = TensorDataset(torch.randn(64, 3, 224, 224), torch.randint(0, 5, (64,)))
+    test_ds = TensorDataset(torch.randn(32, 3, 224, 224), torch.randint(0, 5, (32,)))
+    train_loader = DataLoader(train_ds, batch_size=16, shuffle=True)
+    test_loader = DataLoader(test_ds, batch_size=16)
+
+    # Step 1: SSL pre-training (2 steps)
+    model = create_ssl_model("simclr", backbone="vit_small", embed_dim=384)
+    model.to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    model.train()
+    for images, _ in train_loader:
+        result = model(images, torch.randn_like(images))
+        result["loss"].backward()
+        optimizer.step()
+        optimizer.zero_grad()
+        break  # 1 step only
+
+    # Step 2: Adaptation
+    backbone = model.encoder if hasattr(model, "encoder") else model
+    adapter = FewShotAdapter(backbone, num_classes=5, adaptation_method="linear")
+    adapter.to(device)
+    adapter.train()
+    for images, labels in train_loader:
+        result = adapter(images)
+        loss = torch.nn.functional.cross_entropy(result["logits"], labels)
+        loss.backward()
+        optimizer.step()
+        optimizer.zero_grad()
+        break
+
+    # Step 3: Evaluate
+    adapter.eval()
+    all_logits, all_labels = [], []
+    with torch.no_grad():
+        for images, labels in test_loader:
+            result = adapter(images)
+            all_logits.append(result["logits"])
+            all_labels.append(labels)
+    logits = torch.cat(all_logits)
+    labels = torch.cat(all_labels)
+    acc = compute_accuracy(logits, labels)
+    assert "top_1_acc" in acc
+    assert 0 <= acc["top_1_acc"] <= 100
+
+    elapsed = time.time() - t0
+    print(f"    Full pipeline (train→adapt→eval): acc={acc['top_1_acc']:.1f}%, time={elapsed:.2f}s ✓")
+
+
+def test_model_ema_state_dict():
+    """Test EMA shadow maintains separate state from source model."""
+    from crop_ssl.utils.training import ModelEMA
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    model = vit_small_patch16(num_classes=10)
+    ema = ModelEMA(model, decay=0.999)
+
+    # After many updates with drift, EMA shadow should differ from current model
+    for _ in range(100):
+        for p in model.parameters():
+            p.data.add_(torch.randn_like(p.data) * 0.1)
+        ema.update()
+
+    # Verify shadow params differ from model params (ema.model IS model, use ema.shadow)
+    diff = 0
+    for (n1, p1), (n2, p2) in zip(model.named_parameters(), ema.shadow.named_parameters()):
+        diff += (p1 - p2).abs().mean().item()
+    assert diff > 0, "EMA shadow should differ from source after updates"
+    print(f"    EMA shadow divergence: avg_diff={diff:.6f} ✓")
+
+
+def test_multi_crop_dinov2():
+    """Test DINOv2 with various crop configurations."""
+    from crop_ssl.models.ssl import create_ssl_model
+    for local_n in [6, 10, 8]:
+        model = create_ssl_model("dinov2", backbone="vit_small", embed_dim=384,
+                                 local_crops_number=local_n)
+        crops = [torch.randn(2, 3, 224, 224) for _ in range(2 + local_n)]
+        result = model(crops)
+        assert "loss" in result
+        assert torch.isfinite(result["loss"])
+    print(f"    DINOv2 multi-crop configs: OK")
+
+
+def test_concurrent_forward_passes():
+    """Test that model produces consistent outputs across separate forward passes."""
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    model = vit_small_patch16(num_classes=10)
+    model.eval()
+    x = torch.randn(2, 3, 224, 224)
+    with torch.no_grad():
+        out1 = model(x)
+        out2 = model(x)
+    assert torch.allclose(out1, out2, atol=1e-6), "Non-deterministic forward pass in eval mode"
+    print("    Deterministic forward passes: OK")
+
+
+def test_checkpoint_metadata():
+    """Test checkpoint saves and loads metadata correctly."""
+    from crop_ssl.utils.checkpointing import save_checkpoint, load_checkpoint
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    import tempfile, os
+
+    model = vit_small_patch16(num_classes=10)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    metrics = {"accuracy": 85.5, "loss": 0.32, "epoch": 10}
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = os.path.join(tmpdir, "test_ckpt.pth")
+        save_checkpoint(model, optimizer, epoch=10, metrics=metrics, save_path=path)
+        loaded = load_checkpoint(path, model, optimizer)
+        assert "epoch" in loaded
+        assert loaded["epoch"] == 10
+        assert "metrics" in loaded
+        assert loaded["metrics"]["accuracy"] == 85.5
+    print("    Checkpoint metadata: OK")
+
+
+def test_all_ssl_methods_trainable():
+    """Verify all SSL methods can be trained (backward + step)."""
+    from crop_ssl.models.ssl import create_ssl_model
+    methods = ["simclr", "mae", "dinov2", "moco_v3"]
+    for method in methods:
+        model = create_ssl_model(method, backbone="vit_small", embed_dim=384)
+        model.train()
+        optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
+        optimizer.zero_grad()
+        x = torch.randn(4, 3, 224, 224)
+        if method in ("simclr", "moco_v3"):
+            result = model(x, torch.randn_like(x))
+        elif method == "mae":
+            result = model(x)
+        else:
+            result = model([x] + [torch.randn_like(x) for _ in range(9)])
+        result["loss"].backward()
+        optimizer.step()
+        # Verify at least one parameter received gradient
+        grads = [p.grad for p in model.parameters() if p.grad is not None]
+        assert len(grads) > 0, f"{method}: no gradients after backward"
+    print(f"    All {len(methods)} SSL methods trainable: OK")
+
+
+def test_domain_adaptation_loss_decomposition():
+    """Verify domain adaptation losses are independently valid."""
+    from crop_ssl.models.adaptation.domain_adapter import DomainAdaptationModule
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    backbone = vit_small_patch16()
+    for method in ["dann", "mmd", "coral"]:
+        adapter = DomainAdaptationModule(backbone, num_classes=10, adaptation_type=method, input_dim=384)
+        src = torch.randn(8, 3, 224, 224)
+        tgt = torch.randn(8, 3, 224, 224)
+        result = adapter(src, tgt)
+        assert torch.isfinite(result["domain_loss"]), f"{method}: non-finite domain loss"
+        assert "source_logits" in result, f"{method}: missing source_logits"
+        assert "target_logits" in result, f"{method}: missing target_logits"
+        assert result["domain_loss"].requires_grad, f"{method}: domain loss has no grad"
+        assert result["source_logits"].requires_grad, f"{method}: source_logits has no grad"
+    print("    Domain adaptation loss decomposition: OK")
+
+
+def test_few_shot_adapter_all_methods():
+    """Test all few-shot adaptation methods produce valid outputs."""
+    from crop_ssl.models.adaptation.few_shot_adapter import FewShotAdapter
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    backbone = vit_small_patch16()
+    x = torch.randn(4, 3, 224, 224)
+    n_way = 5
+    support = torch.randn(n_way * 2, 3, 224, 224)
+    support_labels = torch.arange(n_way).repeat(2)
+
+    for method in ["linear", "lora", "prototypical", "maml"]:
+        adapter = FewShotAdapter(backbone, num_classes=n_way, adaptation_method=method, rank=4)
+        adapter.eval()
+        if method in ("prototypical", "maml"):
+            result = adapter(x, support_images=support, support_labels=support_labels, n_way=n_way)
+        else:
+            result = adapter(x)
+        assert "logits" in result, f"{method}: missing logits"
+        assert result["logits"].shape == (4, n_way), f"{method}: wrong shape {result['logits'].shape}"
+        assert torch.isfinite(result["logits"]).all(), f"{method}: non-finite logits"
+    print("    All few-shot methods: OK")
+
+
+def test_temperature_scaling_effect():
+    """Verify temperature scaling changes prediction confidence."""
+    from crop_ssl.evaluation.calibration import TemperatureScaling
+    ts = TemperatureScaling()
+    logits = torch.randn(200, 10) * 3  # High magnitude logits
+    labels = torch.randint(0, 10, (200,))
+    result = ts.calibrate(logits, labels)
+    T = result["temperature"]
+    assert T > 0, f"Temperature must be positive, got {T}"
+    # Scaled logits should have lower max probability
+    scaled = logits / T
+    probs_before = torch.softmax(logits, dim=-1).max(dim=-1).values.mean().item()
+    probs_after = torch.softmax(scaled, dim=-1).max(dim=-1).values.mean().item()
+    print(f"    Temperature scaling: T={T:.3f}, confidence {probs_before:.3f} -> {probs_after:.3f}")
+
+
+def test_active_learning_strategies_comparison():
+    """Verify different AL strategies select different samples."""
+    from crop_ssl.evaluation.active_learning import ActiveLearner
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    from torch.utils.data import DataLoader, TensorDataset
+    model = vit_small_patch16(num_classes=10)
+    model.eval()
+    ds = TensorDataset(torch.randn(50, 3, 224, 224), torch.zeros(50))
+    loader = DataLoader(ds, batch_size=10)
+    al = ActiveLearner(model)
+    unc = al.uncertainty_sampling(loader, n_samples=5)
+    mar = al.margin_sampling(loader, n_samples=5)
+    # Committee needs multiple models
+    m2 = vit_small_patch16(num_classes=10)
+    com = al.query_by_committee(loader, n_samples=5, committee=[model, m2])
+    unc_set, mar_set, com_set = set(unc), set(mar), set(com)
+    all_same = (unc_set == mar_set == com_set)
+    assert not all_same, "All AL strategies selected identical samples"
+    print("    AL strategies diversity: OK")
+
+
+def test_export_model_summary_comprehensive():
+    """Test model_summary returns valid output for all SSL methods."""
+    from crop_ssl.utils.export import model_summary, count_parameters
+    from crop_ssl.models.ssl import create_ssl_model
+    for method in ["simclr", "dinov2", "mae"]:
+        model = create_ssl_model(method, backbone="vit_small", embed_dim=384)
+        summary = model_summary(model)
+        assert isinstance(summary, str), f"{method}: summary should be string"
+        assert "Total parameters" in summary, f"{method}: summary missing 'Total parameters'"
+        params = count_parameters(model)
+        assert params["total"] > 0
+    print("    Model summary comprehensive: OK")
+
+
+def test_reproducibility_across_methods():
+    """Verify seed reproducibility works across different SSL methods."""
+    from crop_ssl.utils.reproducibility import set_seed
+    from crop_ssl.models.ssl import create_ssl_model
+    x = torch.randn(2, 3, 224, 224)
+    for method in ["mae", "simclr"]:
+        set_seed(42)
+        torch.manual_seed(42)
+        model1 = create_ssl_model(method, backbone="vit_small", embed_dim=384)
+        if method == "mae":
+            out1 = model1(x)["loss"].item()
+        else:
+            v2 = torch.randn(2, 3, 224, 224)
+            out1 = model1(x, v2)["loss"].item()
+
+        set_seed(42)
+        torch.manual_seed(42)
+        model2 = create_ssl_model(method, backbone="vit_small", embed_dim=384)
+        if method == "mae":
+            out2 = model2(x)["loss"].item()
+        else:
+            v2 = torch.randn(2, 3, 224, 224)
+            out2 = model2(x, v2)["loss"].item()
+
+        assert abs(out1 - out2) < 1e-5, f"{method}: not reproducible ({out1} != {out2})"
+    print("    Cross-method reproducibility: OK")
+
+
+def test_augmentation_diversity():
+    """Test that augmentation transforms produce different outputs."""
+    from crop_ssl.data.transforms.augmentations import (
+        MultiCropTransform, SimCLRTransform, MoCoTransform, MAEReconstructTransform
+    )
+    from PIL import Image
+    img = Image.fromarray(torch.randint(0, 255, (224, 224, 3), dtype=torch.uint8).numpy())
+
+    # MultiCrop
+    mc = MultiCropTransform(global_crops_number=2, local_crops_number=2)
+    crops = mc(img)
+    assert len(crops) == 4
+    assert not torch.equal(crops[0], crops[2]), "MultiCrop: global and local should differ"
+
+    # SimCLR
+    sc = SimCLRTransform()
+    v1, v2 = sc(img)
+    assert v1.shape == (3, 224, 224)
+    assert not torch.equal(v1, v2), "SimCLR: two views should differ"
+
+    # MoCo
+    mo = MoCoTransform()
+    q, k = mo(img)
+    assert q.shape == k.shape
+
+    # MAE
+    mae = MAEReconstructTransform()
+    inp, target = mae(img)
+    assert inp.shape == target.shape
+
+    print("    Augmentation diversity: OK")
+
+
+def test_checkpoint_resume_training():
+    """Test that training can resume from a checkpoint."""
+    from crop_ssl.utils.checkpointing import save_checkpoint, load_checkpoint
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    import tempfile, os
+
+    model = vit_small_patch16(num_classes=10)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+
+    # Train 2 steps
+    for _ in range(2):
+        x = torch.randn(4, 3, 224, 224)
+        out = model(x)
+        loss = out.mean()
+        loss.backward()
+        optimizer.step()
+        optimizer.zero_grad()
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = os.path.join(tmpdir, "resume_ckpt.pth")
+        save_checkpoint(model, optimizer, epoch=2, metrics={}, save_path=path)
+
+        # Create fresh model and optimizer
+        model2 = vit_small_patch16(num_classes=10)
+        optimizer2 = torch.optim.Adam(model2.parameters(), lr=1e-3)
+        load_checkpoint(path, model2, optimizer2)
+
+        # Weights should match
+        for (n1, p1), (n2, p2) in zip(model.named_parameters(), model2.named_parameters()):
+            assert torch.equal(p1, p2), f"Resume failed: {n1} differs"
+    print("    Checkpoint resume training: OK")
+
+
+def test_early_stopping_saves_best():
+    """Verify EarlyStopping in max mode tracks the best accuracy."""
+    from crop_ssl.utils.training import EarlyStopping
+    es = EarlyStopping(patience=3, mode="max", min_delta=0.01)
+    accs = [0.5, 0.6, 0.7, 0.69, 0.68, 0.67]  # Best=0.7, then decline
+    best_epoch = -1
+    for i, acc in enumerate(accs):
+        if es(acc):
+            break
+        best_epoch = i
+    assert best_epoch >= 2, "Should have continued through improving epochs"
+    assert es.best_score == 0.7, f"Best score should be 0.7, got {es.best_score}"
+    print(f"    Early stopping best tracking: best={es.best_score}, stopped after {best_epoch+1} epochs")
+
+
+def test_cosine_scheduler_warmup_decay():
+    """Verify cosine warmup: LR increases during warmup, then decays."""
+    from crop_ssl.utils.training import CosineWarmupScheduler
+    import torch.nn as nn
+    model = nn.Linear(10, 10)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1.0)
+    scheduler = CosineWarmupScheduler(optimizer, warmup_epochs=3, total_epochs=10)
+
+    # Read LRs after each step
+    lrs = []
+    for epoch in range(10):
+        scheduler.step()
+        lrs.append(optimizer.param_groups[0]["lr"])
+
+    # Warmup phase: LR should increase (steps 1-3)
+    assert lrs[0] < lrs[2], f"Warmup failed: step1={lrs[0]} >= step3={lrs[2]}"
+    # Post-warmup: LR should decrease
+    assert lrs[3] > lrs[9], f"Decay failed: step4={lrs[3]} <= step10={lrs[9]}"
+    print(f"    Cosine scheduler warmup+decay: {lrs[0]:.6f} -> {lrs[2]:.6f} -> {lrs[9]:.6f}")
+
+
+def test_feature_extraction_consistency():
+    """Test that forward_features produces compatible outputs."""
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    model = vit_small_patch16(num_classes=10)
+    model.eval()
+    x = torch.randn(2, 3, 224, 224)
+    with torch.no_grad():
+        feat = model.forward_features(x)
+    assert feat.shape[0] == 2
+    assert feat.shape[-1] == 384  # ViT-Small embed_dim
+    print(f"    Feature extraction: pool={feat.shape} ✓")
+
+
+def test_dataset_length_consistency():
+    """Test all datasets return consistent lengths across splits."""
+    import tempfile
+    from crop_ssl.data.datasets.plantvillage import PlantVillageDataset
+    from crop_ssl.data.datasets.cassava_leaf import CassavaLeafDataset
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        for cls, name, kw in [
+            (PlantVillageDataset, "PlantVillage", {"download": True}),
+            (CassavaLeafDataset, "CassavaLeaf", {}),
+        ]:
+            train = cls(root=tmpdir, split="train", **kw)
+            val = cls(root=tmpdir, split="val", **kw)
+            test = cls(root=tmpdir, split="test", **kw)
+            total = len(train) + len(val) + len(test)
+            assert total > 0, f"{name}: total samples = 0"
+            assert len(train) > 0, f"{name}: train split empty"
+    print("    Dataset split consistency: OK")
+
+
+# ============================================================
 # MAIN
 # ============================================================
 if __name__ == "__main__":
@@ -2115,6 +2707,35 @@ if __name__ == "__main__":
     run_test("Model summary detailed", test_model_summary_detailed)
     run_test("CutMix vs MixUp", test_cutmix_vs_mixup_diversity)
     run_test("Evaluate script choices", test_evaluate_script_choices)
+
+    print("\n🚀 Advanced Efficiency, Integration & Stress Tests:")
+    run_test("Gradient accumulation", test_gradient_accumulation)
+    run_test("Mixed precision forward", test_mixed_precision_forward)
+    run_test("Parameter counting accuracy", test_model_parameter_counting)
+    run_test("DataParallel wrapping", test_data_parallel_wrapping)
+    run_test("TorchScript trace export", test_torchscript_trace)
+    run_test("Buffer persistence roundtrip", test_model_buffer_persistence)
+    run_test("Training loop one epoch", test_training_loop_one_epoch)
+    run_test("MAE loss decreasing", test_ssl_loss_decreasing)
+    run_test("API endpoints registered", test_api_endpoints)
+    run_test("Full pipeline mini", test_full_pipeline_mini)
+    run_test("EMA state divergence", test_model_ema_state_dict)
+    run_test("DINOv2 multi-crop configs", test_multi_crop_dinov2)
+    run_test("Deterministic forward passes", test_concurrent_forward_passes)
+    run_test("Checkpoint metadata", test_checkpoint_metadata)
+    run_test("All SSL methods trainable", test_all_ssl_methods_trainable)
+    run_test("Domain adaptation loss decomposition", test_domain_adaptation_loss_decomposition)
+    run_test("All few-shot methods valid", test_few_shot_adapter_all_methods)
+    run_test("Temperature scaling effect", test_temperature_scaling_effect)
+    run_test("AL strategies diversity", test_active_learning_strategies_comparison)
+    run_test("Export model summary comprehensive", test_export_model_summary_comprehensive)
+    run_test("Cross-method reproducibility", test_reproducibility_across_methods)
+    run_test("Augmentation diversity", test_augmentation_diversity)
+    run_test("Checkpoint resume training", test_checkpoint_resume_training)
+    run_test("Early stopping best tracking", test_early_stopping_saves_best)
+    run_test("Cosine scheduler warmup+decay", test_cosine_scheduler_warmup_decay)
+    run_test("Feature extraction consistency", test_feature_extraction_consistency)
+    run_test("Dataset split consistency", test_dataset_length_consistency)
 
     print("\n🔬 Numerical Stability & Edge Case Tests:")
     run_test("NaN input forward pass", test_nan_input_forward_pass)

@@ -11,7 +11,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.8+-blue.svg" alt="Python">
   <img src="https://img.shields.io/badge/PyTorch-2.0+-ee4c2c.svg" alt="PyTorch">
-  <img src="https://img.shields.io/badge/Tests-135%20Passing-brightgreen.svg" alt="Tests">
+  <img src="https://img.shields.io/badge/Tests-162%20Passing-brightgreen.svg" alt="Tests">
   <img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License">
   <img src="https://img.shields.io/badge/Models-4%20SSL-brightgreen.svg" alt="SSL Methods">
   <img src="https://img.shields.io/badge/Datasets-13-blue.svg" alt="Datasets">
@@ -123,7 +123,7 @@ Input Images
 
 ### 4.1 Test Suite Validation
 
-All 135 unit and integration tests pass across the following modules:
+All 162 unit and integration tests pass across the following modules:
 
 | Module | Tests | Status |
 |--------|-------|--------|
@@ -295,7 +295,7 @@ docker-compose up
 
 The project includes a GitHub Actions CI pipeline (`.github/workflows/ci.yml`) that automatically:
 
-- Runs all 135 tests on every push/PR
+- Runs all 162 tests on every push/PR
 - Checks Python syntax and code quality
 - Tests across Python 3.9, 3.10, 3.11
 - Builds Docker image
@@ -407,7 +407,7 @@ CropSSL/
       compare_methods.py  # Benchmarking script
       run_pipeline.py     # End-to-end pipeline (5 stages)
     .github/workflows/    # CI/CD pipeline (GitHub Actions)
-    tests/                # 135 unit and integration tests
+    tests/                # 162 unit and integration tests
     utils/
       training.py         # EarlyStopping, EMA, LRFinder, CutMix, MixUp
       export.py           # ONNX export, model summary
