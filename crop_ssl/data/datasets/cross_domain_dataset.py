@@ -9,7 +9,7 @@ plant disease datasets with different domain characteristics.
 from typing import Dict, List, Optional, Tuple
 
 import torch
-from torch.utils.data import Dataset, ConcatDataset
+from torch.utils.data import Dataset
 
 from crop_ssl.data.datasets.plantvillage import PlantVillageDataset
 from crop_ssl.data.datasets.plantdoc import PlantDocDataset

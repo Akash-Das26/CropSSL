@@ -10,7 +10,6 @@ from typing import List, Optional, Tuple
 
 import torch
 import torchvision.transforms as T
-import torchvision.transforms.functional as TF
 from PIL import Image, ImageFilter, ImageOps
 
 # Handle Pillow versions that lack InterpolationMode

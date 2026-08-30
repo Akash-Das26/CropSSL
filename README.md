@@ -11,7 +11,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.8+-blue.svg" alt="Python">
   <img src="https://img.shields.io/badge/PyTorch-2.0+-ee4c2c.svg" alt="PyTorch">
-  <img src="https://img.shields.io/badge/Tests-121%20Passing-brightgreen.svg" alt="Tests">
+  <img src="https://img.shields.io/badge/Tests-135%20Passing-brightgreen.svg" alt="Tests">
   <img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License">
   <img src="https://img.shields.io/badge/Models-4%20SSL-brightgreen.svg" alt="SSL Methods">
   <img src="https://img.shields.io/badge/Datasets-13-blue.svg" alt="Datasets">
@@ -123,7 +123,7 @@ Input Images
 
 ### 4.1 Test Suite Validation
 
-All 121 unit and integration tests pass across the following modules:
+All 135 unit and integration tests pass across the following modules:
 
 | Module | Tests | Status |
 |--------|-------|--------|
@@ -263,9 +263,55 @@ Endpoints:
 
 ---
 
-## 7. Usage
+## 7. Docker & CI/CD
 
-### 7.1 SSL Pre-training
+### 7.1 Docker
+
+```bash
+# Build the Docker image
+docker build -t cropssl .
+
+# Run the full pipeline
+docker run --rm cropssl python -m crop_ssl.scripts.run_pipeline --epochs 3 --device cpu
+
+# Run with GPU support
+nvidia-docker run --rm --gpus all cropssl python -m crop_ssl.scripts.run_pipeline --epochs 3 --device cuda
+
+# Run just the tests
+docker run --rm cropssl python -m pytest crop_ssl/tests/test_all.py -v
+```
+
+### 7.2 Docker Compose
+
+```bash
+# Start backend + frontend together
+docker-compose up
+
+# Backend: http://localhost:8000/docs
+# Frontend: http://localhost:8501
+```
+
+### 7.3 CI/CD (GitHub Actions)
+
+The project includes a GitHub Actions CI pipeline (`.github/workflows/ci.yml`) that automatically:
+
+- Runs all 135 tests on every push/PR
+- Checks Python syntax and code quality
+- Tests across Python 3.9, 3.10, 3.11
+- Builds Docker image
+- Runs the end-to-end pipeline with synthetic data
+
+```yaml
+# Triggered on push to main and PRs
+# Matrix: Python 3.9, 3.10, 3.11
+# Steps: install → syntax check → tests → pipeline → Docker build
+```
+
+---
+
+## 8. Usage
+
+### 8.1 SSL Pre-training
 
 ```bash
 python -m crop_ssl.scripts.train_ssl \
@@ -273,7 +319,7 @@ python -m crop_ssl.scripts.train_ssl \
     --data_root ./data --epochs 100
 ```
 
-### 7.2 Cross-Domain Evaluation
+### 8.2 Cross-Domain Evaluation
 
 ```bash
 python -m crop_ssl.scripts.evaluate \
@@ -284,7 +330,7 @@ python -m crop_ssl.scripts.evaluate \
     --adaptation_method lora --k_shot 5
 ```
 
-### 7.3 Advanced Evaluation Tools
+### 8.3 Advanced Evaluation Tools
 
 ```python
 # Grad-CAM disease localization
@@ -314,18 +360,22 @@ selected = al.uncertainty_sampling(unlabeled_loader, n_samples=100)
 
 ---
 
-## 8. Project Structure
+## 9. Project Structure
 
 ```
 CropSSL/
   crop_ssl/
     data/
-      datasets/           # 9 dataset loaders with auto-download support
+      datasets/           # 13 dataset loaders with auto-download support
         plantvillage.py    # HuggingFace auto-download + Mendeley + synthetic
         plantdoc.py        # GitHub source + synthetic fallback
         cassava_leaf.py    # HuggingFace auto-download + Kaggle
         plant_pathology.py # Apple foliar disease + severity estimation
         icassava_2019.py   # Cassava disease (predecessor, cross-dataset)
+        plant_seg.py       # 115 disease segmentation (11.4K images)
+        field_plant.py     # Real plantation-shot (5.1K images, 27 classes)
+        diamos_plant.py    # Severity regression (3.5K images, pear)
+        bracol.py          # Multi-sensor coffee (1.7K images, 5 phones)
         rice_leaf.py       # Synthetic fallback
         coffee_leaf.py     # Synthetic fallback
         domainnet_plant.py # Multi-domain (5 domains)
@@ -355,7 +405,9 @@ CropSSL/
       evaluate.py         # Cross-domain evaluation CLI
       download_data.py    # Dataset preparation CLI
       compare_methods.py  # Benchmarking script
-    tests/                # 81 unit and integration tests
+      run_pipeline.py     # End-to-end pipeline (5 stages)
+    .github/workflows/    # CI/CD pipeline (GitHub Actions)
+    tests/                # 135 unit and integration tests
     utils/
       training.py         # EarlyStopping, EMA, LRFinder, CutMix, MixUp
       export.py           # ONNX export, model summary
@@ -367,7 +419,7 @@ CropSSL/
 
 ---
 
-## 9. Configuration
+## 10. Configuration
 
 ```python
 from crop_ssl.configs.default import ExperimentConfig

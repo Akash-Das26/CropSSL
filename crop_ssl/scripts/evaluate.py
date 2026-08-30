@@ -23,13 +23,9 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-from crop_ssl.configs.default import ExperimentConfig
-from crop_ssl.data.datasets.cross_domain_dataset import CrossDomainDataset
-from crop_ssl.data.datasets.few_shot_sampler import FewShotSampler
 from crop_ssl.data.transforms.augmentations import get_default_train_transform, get_test_transform
 from crop_ssl.models.ssl import create_ssl_model
 from crop_ssl.models.adaptation.few_shot_adapter import FewShotAdapter
-from crop_ssl.evaluation.cross_domain_eval import CrossDomainEvaluator
 from crop_ssl.evaluation.metrics import (
     compute_accuracy,
     compute_per_class_metrics,

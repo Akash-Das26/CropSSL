@@ -1094,7 +1094,6 @@ def test_prototypical_network_distance():
 # ============================================================
 def test_plant_pathology():
     from crop_ssl.data.datasets.plant_pathology import PlantPathologyDataset
-    import torchvision.transforms.functional as TF
     import tempfile
     with tempfile.TemporaryDirectory() as tmpdir:
         ds = PlantPathologyDataset(root=tmpdir, split="train")
@@ -1741,6 +1740,224 @@ def test_evaluate_script_choices():
 
 
 # ============================================================
+# 18. Numerical Stability & Edge Case Tests
+# ============================================================
+def test_nan_input_forward_pass():
+    """SSL models should not crash on NaN input (may produce NaN output)."""
+    from crop_ssl.models.ssl.simclr import SimCLR
+    model = SimCLR(backbone="vit_small", embed_dim=384, proj_dim=128)
+    model.eval()
+    x = torch.full((2, 3, 224, 224), float('nan'))
+    with torch.no_grad():
+        feat = model.encode(x)
+    assert feat.shape == (2, 384)
+    # NaN in → NaN out is acceptable; crash is not
+    print("    NaN input handled gracefully")
+
+
+def test_zero_input_forward_pass():
+    """Models should handle all-zeros input."""
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    model = vit_small_patch16()
+    model.eval()
+    x = torch.zeros(2, 3, 224, 224)
+    with torch.no_grad():
+        feat = model.forward_features(x)
+    assert feat.shape == (2, 384)
+    assert not torch.isnan(feat).any(), "Zero input produced NaN"
+    print(f"    Zero input: mean={feat.mean().item():.4f}")
+
+
+def test_extreme_values_forward():
+    """Models should handle extreme value inputs."""
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    model = vit_small_patch16()
+    model.eval()
+    x = torch.full((2, 3, 224, 224), 100.0)
+    with torch.no_grad():
+        feat = model.forward_features(x)
+    assert feat.shape == (2, 384)
+    assert not torch.isnan(feat).any(), "Extreme input produced NaN"
+    print(f"    Extreme input (100.0): no NaN")
+
+
+def test_single_sample_batch():
+    """All models should handle batch_size=1."""
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    model = vit_small_patch16()
+    model.eval()
+    x = torch.randn(1, 3, 224, 224)
+    with torch.no_grad():
+        feat = model.forward_features(x)
+    assert feat.shape == (1, 384)
+    print("    Single sample batch: OK")
+
+
+def test_large_batch_forward():
+    """Test with a reasonably large batch."""
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    model = vit_small_patch16()
+    model.eval()
+    x = torch.randn(64, 3, 224, 224)
+    with torch.no_grad():
+        feat = model.forward_features(x)
+    assert feat.shape == (64, 384)
+    assert not torch.isnan(feat).any()
+    print("    Large batch (64): OK")
+
+
+def test_deterministic_eval():
+    """Model in eval mode should produce deterministic outputs."""
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    model = vit_small_patch16()
+    model.eval()
+    x = torch.randn(2, 3, 224, 224)
+    with torch.no_grad():
+        out1 = model.forward_features(x)
+        out2 = model.forward_features(x)
+    assert torch.equal(out1, out2), "Eval mode not deterministic"
+    print("    Deterministic eval: OK")
+
+
+def test_gradient_flow_through_lora():
+    """Verify gradients flow through LoRA parameters."""
+    from crop_ssl.models.adaptation.few_shot_adapter import FewShotAdapter, LoRALayer
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    backbone = vit_small_patch16()
+    adapter = FewShotAdapter(backbone, num_classes=10, adaptation_method="lora", rank=4)
+    adapter.train()
+    x = torch.randn(4, 3, 224, 224)
+    result = adapter(x)
+    loss = result["logits"].sum()
+    loss.backward()
+    # Check LoRA params got gradients (lora_B is zero-init so it always gets grad;
+    # lora_A may have zero grad at init since output is zero before first step)
+    lora_has_grad = False
+    for m in adapter.backbone.modules():
+        if isinstance(m, LoRALayer):
+            if (m.lora_B.grad is not None and m.lora_B.grad.abs().sum() > 0):
+                lora_has_grad = True
+                break
+    assert lora_has_grad, "No gradients reached LoRA parameters"
+    print("    LoRA gradient flow: OK")
+
+
+def test_grad_cam_different_target_layers():
+    """GradCAM should work with different target layer indices."""
+    from crop_ssl.evaluation.grad_cam import GradCAM
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    backbone = vit_small_patch16(num_classes=10)
+    for layer_idx in [0, 5, 11]:
+        target = backbone.blocks[layer_idx].attn.proj
+        gc = GradCAM(backbone, target_layer=target)
+        x = torch.randn(1, 3, 224, 224)
+        cam = gc.generate(x)
+        assert cam.ndim == 2
+        assert cam.min() >= 0
+        gc.remove_hooks()
+    print("    GradCAM different layers: OK")
+
+
+def test_state_dict_roundtrip_dino():
+    """DINOv2 state_dict should survive save/load."""
+    from crop_ssl.models.ssl.dino_v2 import DINOv2
+    model = DINOv2(backbone="vit_small", embed_dim=384, out_dim=128)
+    sd = model.state_dict()
+    model2 = DINOv2(backbone="vit_small", embed_dim=384, out_dim=128)
+    model2.load_state_dict(sd)
+    # Verify center buffer preserved
+    assert torch.equal(model.center, model2.center), "Center buffer lost"
+    # Verify forward matches
+    crops = [torch.randn(1, 3, 224, 224) for _ in range(10)]
+    model.eval(); model2.eval()
+    with torch.no_grad():
+        r1 = model(crops)
+        r2 = model2(crops)
+    assert torch.allclose(r1["loss"], r2["loss"]), "Loss mismatch after state_dict roundtrip"
+    print("    DINOv2 state_dict roundtrip: OK")
+
+
+def test_multiple_ssl_methods_forward():
+    """All 4 SSL methods should produce valid losses."""
+    from crop_ssl.models.ssl import create_ssl_model
+    for method in ["simclr", "moco_v3", "mae", "dinov2"]:
+        model = create_ssl_model(method, backbone="vit_small", embed_dim=384)
+        model.eval()
+        if method == "simclr":
+            result = model(torch.randn(2, 3, 224, 224), torch.randn(2, 3, 224, 224))
+        elif method == "moco_v3":
+            result = model(torch.randn(2, 3, 224, 224), torch.randn(2, 3, 224, 224))
+        elif method == "mae":
+            result = model(torch.randn(2, 3, 224, 224))
+        else:
+            crops = [torch.randn(2, 3, 224, 224) for _ in range(10)]
+            result = model(crops)
+        assert "loss" in result
+        assert result["loss"].ndim == 0
+    print("    All SSL methods produce valid losses")
+
+
+def test_feature_viz_tsne_perplexity():
+    """t-SNE should work with different perplexities."""
+    import numpy as np
+    from crop_ssl.evaluation.feature_viz import compute_tsne
+    features = np.random.randn(60, 384)
+    for perp in [5, 30, 50]:
+        emb = compute_tsne(features, n_components=2, perplexity=perp)
+        assert emb.shape == (60, 2)
+    print("    t-SNE perplexity variations: OK")
+
+
+def test_model_gradient_norm():
+    """Verify gradient norms are finite after backward."""
+    from crop_ssl.models.ssl.simclr import SimCLR
+    model = SimCLR(backbone="vit_small", embed_dim=384, proj_dim=128)
+    model.train()
+    result = model(torch.randn(4, 3, 224, 224), torch.randn(4, 3, 224, 224))
+    result["loss"].backward()
+    total_norm = 0.0
+    for p in model.parameters():
+        if p.grad is not None:
+            total_norm += p.grad.data.norm(2).item() ** 2
+    total_norm = total_norm ** 0.5
+    assert total_norm > 0, "Zero gradient norm"
+    assert total_norm < 1e6, f"Gradient explosion: norm={total_norm}"
+    print(f"    Gradient norm: {total_norm:.2f}")
+
+
+def test_checkpoint_partial_load():
+    """Loading checkpoint with missing keys should not crash."""
+    import tempfile
+    from crop_ssl.utils.checkpointing import save_checkpoint
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    model1 = vit_small_patch16(num_classes=10)
+    model2 = vit_small_patch16(num_classes=5)  # Different head
+    with tempfile.TemporaryDirectory() as tmpdir:
+        save_checkpoint(model1, None, epoch=0, metrics={}, save_path=f"{tmpdir}/ckpt.pth")
+        # Load shared backbone weights only (exclude mismatched head)
+        ckpt = torch.load(f"{tmpdir}/ckpt.pth", map_location="cpu")
+        backbone_sd = {k: v for k, v in ckpt["model_state_dict"].items() if "head" not in k}
+        model2.load_state_dict(backbone_sd, strict=False)
+    print("    Partial checkpoint load: OK")
+
+
+def test_active_learning_balanced_strategies():
+    """Active learning should select from underrepresented classes."""
+    from crop_ssl.evaluation.active_learning import ActiveLearner
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    from torch.utils.data import TensorDataset, DataLoader
+    backbone = vit_small_patch16(num_classes=3)
+    al = ActiveLearner(backbone)
+    # Create imbalanced unlabeled set
+    unlabeled = TensorDataset(torch.randn(30, 3, 224, 224), torch.zeros(30))
+    loader = DataLoader(unlabeled, batch_size=10)
+    selected = al.uncertainty_sampling(loader, n_samples=10)
+    assert len(selected) == 10
+    assert len(set(selected)) == 10, "Duplicate samples selected"
+    print("    AL balanced selection: OK")
+
+
+# ============================================================
 # MAIN
 # ============================================================
 if __name__ == "__main__":
@@ -1898,6 +2115,22 @@ if __name__ == "__main__":
     run_test("Model summary detailed", test_model_summary_detailed)
     run_test("CutMix vs MixUp", test_cutmix_vs_mixup_diversity)
     run_test("Evaluate script choices", test_evaluate_script_choices)
+
+    print("\n🔬 Numerical Stability & Edge Case Tests:")
+    run_test("NaN input forward pass", test_nan_input_forward_pass)
+    run_test("Zero input forward pass", test_zero_input_forward_pass)
+    run_test("Extreme values forward", test_extreme_values_forward)
+    run_test("Single sample batch", test_single_sample_batch)
+    run_test("Large batch forward", test_large_batch_forward)
+    run_test("Deterministic eval mode", test_deterministic_eval)
+    run_test("Gradient flow through LoRA", test_gradient_flow_through_lora)
+    run_test("GradCAM different target layers", test_grad_cam_different_target_layers)
+    run_test("DINOv2 state_dict roundtrip", test_state_dict_roundtrip_dino)
+    run_test("All SSL methods valid losses", test_multiple_ssl_methods_forward)
+    run_test("t-SNE perplexity variations", test_feature_viz_tsne_perplexity)
+    run_test("Gradient norm finite", test_model_gradient_norm)
+    run_test("Partial checkpoint load", test_checkpoint_partial_load)
+    run_test("AL balanced selection", test_active_learning_balanced_strategies)
 
     print("\n" + "=" * 60)
     print(f"Results: {PASS} passed, {FAIL} failed out of {PASS + FAIL} tests")

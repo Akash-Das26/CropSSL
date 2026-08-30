@@ -14,7 +14,6 @@ healthy/disease), enabling severity estimation as an additional task.
 """
 
 import csv
-import json
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -211,6 +210,7 @@ class DiaMOSPlantDataset(Dataset):
         import numpy as np
 
         self.images_dir.mkdir(parents=True, exist_ok=True)
+        csv_rows = []
 
         for i, cls_name in enumerate(self.DISEASE_CLASSES):
             n_images = 15 + np.random.randint(0, 20)
@@ -227,19 +227,14 @@ class DiaMOSPlantDataset(Dataset):
 
                 img_name = f"{cls_name}_s{int(severity)}_{stage}_{j:04d}.jpg"
                 img.save(self.images_dir / img_name)
+                csv_rows.append([img_name, cls_name, f"{severity:.1f}", stage])
 
-        # Create annotations CSV
+        # Create annotations CSV from the same data
         annotations_path = self.data_dir / "annotations.csv"
         with open(annotations_path, "w", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(["image_id", "disease", "severity", "growth_stage"])
-            for cls_name in self.DISEASE_CLASSES:
-                n_images = 15 + np.random.randint(0, 20)
-                for j in range(n_images):
-                    severity = np.random.uniform(0, 100) if cls_name != "healthy" else 0.0
-                    stage = self.GROWTH_STAGES[np.random.randint(len(self.GROWTH_STAGES))]
-                    img_name = f"{cls_name}_s{int(severity)}_{stage}_{j:04d}.jpg"
-                    writer.writerow([img_name, cls_name, f"{severity:.1f}", stage])
+            writer.writerows(csv_rows)
 
         print(f"Created synthetic DiaMOSPlant at {self.data_dir}")
 

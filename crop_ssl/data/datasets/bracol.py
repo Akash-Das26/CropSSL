@@ -14,7 +14,6 @@ camera/sensor variation — a different axis of domain shift from background/lig
 """
 
 import csv
-import json
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -245,6 +244,7 @@ class BRACOLDataset(Dataset):
         import numpy as np
 
         self.images_dir.mkdir(parents=True, exist_ok=True)
+        csv_rows = []
 
         # Simulate different phone color profiles
         phone_tints = [
@@ -281,20 +281,14 @@ class BRACOLDataset(Dataset):
                 phone_name = self.PHONE_MODELS[phone_idx]
                 img_name = f"{cls_name}_s{severity}_{phone_name}_{j:04d}.jpg"
                 img.save(self.images_dir / img_name)
+                csv_rows.append([img_name, cls_name, severity, phone_name])
 
-        # Create metadata CSV
+        # Create metadata CSV from the same data
         metadata_path = self.data_dir / "metadata.csv"
         with open(metadata_path, "w", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(["image_id", "class", "severity", "phone_model"])
-            for cls_name in self.CLASS_NAMES:
-                n_images = 15 + np.random.randint(0, 20)
-                for j in range(n_images):
-                    phone_idx = np.random.randint(5)
-                    severity = 0 if cls_name == "healthy" else np.random.randint(1, 4)
-                    phone_name = self.PHONE_MODELS[phone_idx]
-                    img_name = f"{cls_name}_s{severity}_{phone_name}_{j:04d}.jpg"
-                    writer.writerow([img_name, cls_name, severity, phone_name])
+            writer.writerows(csv_rows)
 
         print(f"Created synthetic BRACOL at {self.data_dir}")
 

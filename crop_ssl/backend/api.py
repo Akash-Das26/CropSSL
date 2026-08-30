@@ -13,14 +13,12 @@ Usage:
 import io
 import time
 import uuid
-from pathlib import Path
 from typing import Dict, List, Optional
 
 import torch
 import torch.nn.functional as F
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 # ============================================================
