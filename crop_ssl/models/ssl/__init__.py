@@ -4,8 +4,6 @@ Self-Supervised Learning Model Registry.
 Provides a unified interface to create and manage SSL models.
 """
 
-from typing import Optional
-
 import torch.nn as nn
 
 from crop_ssl.models.ssl.dino_v2 import DINOv2

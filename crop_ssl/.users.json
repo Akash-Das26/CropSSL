@@ -1,0 +1,32 @@
+{
+  "admin": {
+    "password_hash": "240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9",
+    "display_name": "Administrator",
+    "role": "admin",
+    "created_at": "2026-01-01"
+  },
+  "researcher": {
+    "password_hash": "737fcfd94d352730456aca4d15a4b3e69fccf5aa48fb33840b7f70b7105e01ce",
+    "display_name": "Researcher",
+    "role": "researcher",
+    "created_at": "2026-01-01"
+  },
+  "demo": {
+    "password_hash": "d3ad9315b7be5dd53b31a273b3b3aba5defe700808305aa16a3062b76658a791",
+    "display_name": "Demo User",
+    "role": "viewer",
+    "created_at": "2026-01-01"
+  },
+  "testuser2": {
+    "password_hash": "7e6e0c3079a08c5cc6036789b57e951f65f82383913ba1a49ae992544f1b4b6e",
+    "display_name": "Test",
+    "role": "viewer",
+    "created_at": "2026-08-30"
+  },
+  "testuser3": {
+    "password_hash": "7e6e0c3079a08c5cc6036789b57e951f65f82383913ba1a49ae992544f1b4b6e",
+    "display_name": "Test",
+    "role": "viewer",
+    "created_at": "2026-08-30"
+  }
+}

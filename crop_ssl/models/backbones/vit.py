@@ -6,7 +6,6 @@ Implements a flexible Vision Transformer that can serve as the
 backbone for DINOv2, MoCo v3, SimCLR, and other SSL methods.
 """
 
-import math
 from typing import Optional
 
 import torch

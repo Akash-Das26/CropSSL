@@ -12,7 +12,6 @@ Key features:
 - Centering to prevent mode collapse
 """
 
-import math
 from typing import Dict, List, Optional, Tuple
 
 import torch
