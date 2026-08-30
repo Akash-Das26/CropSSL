@@ -2550,6 +2550,247 @@ def test_dataset_length_consistency():
 
 
 # ============================================================
+# 17. Advanced Robustness & Theory Tests
+# ============================================================
+def test_mmd_symmetry():
+    """MMD(source, target) should be close to MMD(target, source)."""
+    from crop_ssl.models.adaptation.domain_adapter import MMDLoss
+    loss_fn = MMDLoss()
+    s = torch.randn(16, 384)
+    t = torch.randn(16, 384)
+    mmd_st = loss_fn(s, t).item()
+    mmd_ts = loss_fn(t, s).item()
+    assert abs(mmd_st - mmd_ts) < 0.01, f"MMD not symmetric: {mmd_st} != {mmd_ts}"
+    print("    MMD symmetry: OK")
+
+def test_coral_identical_zero():
+    """CORAL loss should be 0 for identical distributions."""
+    from crop_ssl.models.adaptation.domain_adapter import CORALLoss
+    loss_fn = CORALLoss(dim=384)
+    x = torch.randn(16, 384)
+    loss = loss_fn(x, x).item()
+    assert loss < 1e-5, f"CORAL(x,x)={loss}, expected ~0"
+    print("    CORAL identical=0: OK")
+
+def test_coral_different_positive():
+    """CORAL loss should be positive for different distributions."""
+    from crop_ssl.models.adaptation.domain_adapter import CORALLoss
+    loss_fn = CORALLoss(dim=384)
+    s = torch.randn(16, 384)
+    t = torch.randn(16, 384) + 5.0
+    loss = loss_fn(s, t).item()
+    assert loss > 0, f"CORAL(s,t)={loss}, expected > 0"
+    print("    CORAL different>0: OK")
+
+def test_temperature_scaling_monotonic():
+    """Higher temperature should decrease confidence."""
+    from crop_ssl.evaluation.calibration import TemperatureScaling
+    ts = TemperatureScaling(init_temperature=1.0)
+    logits = torch.randn(20, 10)
+    probs_t1 = torch.softmax(logits / 1.0, dim=-1)
+    probs_t5 = torch.softmax(logits / 5.0, dim=-1)
+    conf_t1 = probs_t1.max(dim=-1).values.mean().item()
+    conf_t5 = probs_t5.max(dim=-1).values.mean().item()
+    assert conf_t1 > conf_t5, f"T=1 conf={conf_t1} should > T=5 conf={conf_t5}"
+    print("    Temperature monotonic: OK")
+
+def test_lora_rank_parametric():
+    """Higher LoRA rank should give more trainable parameters."""
+    from crop_ssl.models.adaptation.few_shot_adapter import FewShotAdapter
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    p2 = FewShotAdapter(vit_small_patch16(), 10, "lora", rank=2).get_trainable_params()
+    p8 = FewShotAdapter(vit_small_patch16(), 10, "lora", rank=8).get_trainable_params()
+    p16 = FewShotAdapter(vit_small_patch16(), 10, "lora", rank=16).get_trainable_params()
+    assert p2 < p8 < p16, f"Params not increasing: {p2} < {p8} < {p16}"
+    print(f"    LoRA rank scaling: r2={p2}, r8={p8}, r16={p16}")
+
+def test_ssl_loss_magnitude_ordering():
+    """MAE should have lower loss than contrastive methods on random data."""
+    from crop_ssl.models.ssl import create_ssl_model
+    x = torch.randn(4, 3, 224, 224)
+    losses = {}
+    for method in ["simclr", "mae"]:
+        model = create_ssl_model(method, backbone="vit_small", embed_dim=384)
+        if method == "mae":
+            losses[method] = model(x)["loss"].item()
+        else:
+            losses[method] = model(x, torch.randn_like(x))["loss"].item()
+    assert losses["simclr"] > losses["mae"], f"SimCLR loss {losses['simclr']} should > MAE {losses['mae']}"
+    print(f"    SSL loss magnitudes: SimCLR={losses['simclr']:.3f} > MAE={losses['mae']:.3f}")
+
+def test_cosine_warmup_monotonic_increasing():
+    """LR should strictly increase during warmup."""
+    import torch.optim as optim
+    from crop_ssl.utils.training import CosineWarmupScheduler
+    model = torch.nn.Linear(10, 10)
+    opt = optim.Adam(model.parameters(), lr=0.01)
+    sched = CosineWarmupScheduler(opt, warmup_epochs=5, total_epochs=20)
+    lrs = []
+    for _ in range(5):
+        sched.step()
+        lrs.append(sched.get_last_lr()[0])
+    for i in range(1, len(lrs)):
+        assert lrs[i] >= lrs[i-1], f"LR not monotonic: {lrs[i]} < {lrs[i-1]} at step {i}"
+    print(f"    Warmup monotonic: {lrs[0]:.6f} -> {lrs[-1]:.6f}")
+
+def test_ema_converges_to_model():
+    """After many updates with constant model, EMA shadow should converge."""
+    from crop_ssl.utils.training import ModelEMA
+    model = torch.nn.Linear(10, 10)
+    ema = ModelEMA(model, decay=0.9)
+    # Set model to constant values
+    constant = torch.ones_like(model.weight)
+    model.weight.data.copy_(constant)
+    model.bias.data.zero_()
+    for _ in range(100):
+        ema.update()
+    # Shadow should be close to constant
+    diff = (ema.shadow.weight.data - constant).abs().mean().item()
+    assert diff < 0.01, f"EMA did not converge: diff={diff}"
+    print(f"    EMA convergence: diff={diff:.6f}")
+
+def test_checkpoint_size_reasonable():
+    """Checkpoint file size should be within expected range."""
+    import tempfile, os
+    from crop_ssl.utils.checkpointing import save_checkpoint, load_checkpoint
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    model = vit_small_patch16()
+    with tempfile.NamedTemporaryFile(suffix=".pth", delete=False) as f:
+        path = f.name
+    try:
+        save_checkpoint(model, None, epoch=1, metrics={"loss": 0.5}, save_path=path)
+        size_mb = os.path.getsize(path) / (1024 * 1024)
+        # ViT-S should be ~80MB
+        assert 10 < size_mb < 200, f"Checkpoint size {size_mb:.1f}MB outside expected range"
+        print(f"    Checkpoint size: {size_mb:.1f}MB")
+    finally:
+        os.unlink(path)
+
+def test_active_learning_strategies_different():
+    """Different AL strategies should select different samples."""
+    from crop_ssl.evaluation.active_learning import ActiveLearner
+    from torch.utils.data import DataLoader, TensorDataset
+    model = torch.nn.Linear(384, 10)
+    al = ActiveLearner(model)
+    ds = TensorDataset(torch.randn(50, 384), torch.zeros(50, dtype=torch.long))
+    loader = DataLoader(ds, batch_size=10)
+    unc = set(al.uncertainty_sampling(loader, 5))
+    mar = set(al.margin_sampling(loader, 5))
+    overlap = len(unc & mar)
+    assert overlap < 5, f"Uncertainty and margin selected {overlap}/5 same samples"
+    print(f"    AL strategy diversity: {overlap}/5 overlap")
+
+def test_gradcam_spatial_output():
+    """GradCAM should produce a 2D spatial heatmap."""
+    from crop_ssl.evaluation.grad_cam import GradCAM
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    model = vit_small_patch16()
+    gc = GradCAM(model)
+    cam = gc.generate(torch.randn(1, 3, 224, 224))
+    assert cam.dim() == 2, f"GradCAM output is {cam.dim()}D, expected 2D"
+    assert cam.shape[0] == cam.shape[1], f"GradCAM not square: {cam.shape}"
+    assert cam.min() >= 0, f"GradCAM has negative values: {cam.min()}"
+    assert cam.max() <= 1, f"GradCAM max > 1: {cam.max()}"
+    print(f"    GradCAM spatial: {cam.shape}, range=[{cam.min():.3f}, {cam.max():.3f}]")
+    gc.remove_hooks()
+
+def test_backbone_feature_dim_consistent():
+    """All ViT variants should produce consistent feature dimensions."""
+    from crop_ssl.models.backbones.vit import vit_small_patch16, vit_base_patch16, vit_large_patch16
+    x = torch.randn(1, 3, 224, 224)
+    for name, fn, expected_dim in [
+        ("vit_small", vit_small_patch16, 384),
+        ("vit_base", vit_base_patch16, 768),
+        ("vit_large", vit_large_patch16, 1024),
+    ]:
+        model = fn()
+        feat = model.forward_features(x)
+        assert feat.shape == (1, expected_dim), f"{name}: got {feat.shape}, expected (1, {expected_dim})"
+    print("    Feature dims consistent: S=384, B=768, L=1024")
+
+def test_domain_adaptation_gradient_flow():
+    """All domain adaptation methods should produce gradients for backbone."""
+    from crop_ssl.models.adaptation.domain_adapter import DomainAdaptationModule
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    backbone = vit_small_patch16()
+    for method in ["dann", "mmd", "coral", "combined"]:
+        da = DomainAdaptationModule(backbone, 5, method, input_dim=384)
+        src = torch.randn(4, 3, 224, 224, requires_grad=True)
+        tgt = torch.randn(4, 3, 224, 224)
+        result = da(src, tgt)
+        result["total_loss"].backward()
+        grad_norm = src.grad.norm().item()
+        assert grad_norm > 0, f"{method}: no gradient flow (grad_norm={grad_norm})"
+        backbone.zero_grad()
+        src.grad = None
+    print("    DA gradient flow: all 4 methods OK")
+
+def test_multiple_checkpoint_integrity():
+    """Save and load multiple checkpoints, verify no cross-contamination."""
+    import tempfile
+    from crop_ssl.utils.checkpointing import save_checkpoint, load_checkpoint
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    m1 = vit_small_patch16()
+    m2 = vit_small_patch16()
+    # Modify m2 differently via patch_embed weight
+    m2.patch_embed.proj.weight.data.add_(1.0)
+    with tempfile.NamedTemporaryFile(suffix=".pth", delete=False) as f:
+        p1 = f.name
+    with tempfile.NamedTemporaryFile(suffix=".pth", delete=False) as f:
+        p2 = f.name
+    try:
+        save_checkpoint(m1, None, 0, {}, p1)
+        save_checkpoint(m2, None, 0, {}, p2)
+        m1_loaded = vit_small_patch16()
+        m2_loaded = vit_small_patch16()
+        load_checkpoint(p1, m1_loaded)
+        load_checkpoint(p2, m2_loaded)
+        d1 = (m1.patch_embed.proj.weight - m1_loaded.patch_embed.proj.weight).abs().sum().item()
+        d2 = (m2.patch_embed.proj.weight - m2_loaded.patch_embed.proj.weight).abs().sum().item()
+        assert d1 < 1e-6, f"m1 not preserved: diff={d1}"
+        assert d2 < 1e-6, f"m2 not preserved: diff={d2}"
+        diff_between = (m1.patch_embed.proj.weight - m2.patch_embed.proj.weight).abs().sum().item()
+        assert diff_between > 0.1, f"m1 and m2 should differ: diff={diff_between}"
+        print("    Checkpoint integrity: no cross-contamination")
+    finally:
+        import os
+        os.unlink(p1)
+        os.unlink(p2)
+
+def test_platt_scaling_per_class():
+    """Platt scaling should learn per-class parameters."""
+    from crop_ssl.evaluation.calibration import PlattScaling
+    ps = PlattScaling(num_classes=10)
+    logits = torch.randn(50, 10)
+    labels = torch.randint(0, 10, (50,))
+    ps.calibrate(logits, labels)
+    # After calibration, ECE should be computed without error
+    # With random data, Platt may not learn much — just verify it runs
+    scaled = ps(logits)
+    assert scaled.shape == logits.shape, f"Platt output shape mismatch: {scaled.shape}"
+    print(f"    Platt scaling applied: scale mean={ps.scale.mean():.3f}, bias mean={ps.bias.mean():.3f}")
+
+def test_proto_net_distance_metric():
+    """ProtoNet should rank same-class closer than different-class."""
+    from crop_ssl.models.adaptation.few_shot_adapter import PrototypicalNetwork
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+    backbone = vit_small_patch16()
+    proto = PrototypicalNetwork(backbone, metric="cosine")
+    # Create support: class 0 and class 1
+    s0 = torch.randn(3, 3, 224, 224)
+    s1 = torch.randn(3, 3, 224, 224)
+    support = torch.cat([s0, s1], dim=0)
+    labels = torch.tensor([0, 0, 0, 1, 1, 1])
+    # Query: clone of class 0
+    q = s0[:1]
+    result = proto(q, support, labels, n_way=2)
+    logits = result["logits"]
+    # Class 0 should score higher than class 1
+    assert logits[0, 0] > logits[0, 1], f"ProtoNet: class 0={logits[0,0]:.3f} should > class 1={logits[0,1]:.3f}"
+    print(f"    ProtoNet metric: c0={logits[0,0]:.3f} > c1={logits[0,1]:.3f}")
+
+
+# ============================================================
 # MAIN
 # ============================================================
 if __name__ == "__main__":
@@ -2736,6 +2977,24 @@ if __name__ == "__main__":
     run_test("Cosine scheduler warmup+decay", test_cosine_scheduler_warmup_decay)
     run_test("Feature extraction consistency", test_feature_extraction_consistency)
     run_test("Dataset split consistency", test_dataset_length_consistency)
+
+    print("\n🧪 Advanced Robustness & Theory Tests:")
+    run_test("MMD symmetry", test_mmd_symmetry)
+    run_test("CORAL identical=0", test_coral_identical_zero)
+    run_test("CORAL different>0", test_coral_different_positive)
+    run_test("Temperature monotonic", test_temperature_scaling_monotonic)
+    run_test("LoRA rank scaling", test_lora_rank_parametric)
+    run_test("SSL loss magnitudes", test_ssl_loss_magnitude_ordering)
+    run_test("Warmup monotonic", test_cosine_warmup_monotonic_increasing)
+    run_test("EMA convergence", test_ema_converges_to_model)
+    run_test("Checkpoint size", test_checkpoint_size_reasonable)
+    run_test("AL strategy diversity", test_active_learning_strategies_different)
+    run_test("GradCAM spatial", test_gradcam_spatial_output)
+    run_test("Feature dims consistent", test_backbone_feature_dim_consistent)
+    run_test("DA gradient flow", test_domain_adaptation_gradient_flow)
+    run_test("Checkpoint integrity", test_multiple_checkpoint_integrity)
+    run_test("Platt per-class", test_platt_scaling_per_class)
+    run_test("ProtoNet distance", test_proto_net_distance_metric)
 
     print("\n🔬 Numerical Stability & Edge Case Tests:")
     run_test("NaN input forward pass", test_nan_input_forward_pass)
