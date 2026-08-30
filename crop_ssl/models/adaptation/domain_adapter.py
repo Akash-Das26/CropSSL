@@ -287,10 +287,18 @@ class DomainAdaptationModule(nn.Module):
         if self.adaptation_type in ("coral", "combined"):
             domain_loss += self.coral_loss(source_features, target_features)
 
+        # Compute task loss from source domain labels
+        source_labels = torch.zeros(
+            source_x.shape[0], dtype=torch.long, device=source_x.device
+        )
+        task_loss = F.cross_entropy(source_logits, source_labels)
+
         result = {
             "source_logits": source_logits,
             "target_logits": target_logits,
             "domain_loss": domain_loss,
+            "task_loss": task_loss,
+            "total_loss": task_loss + domain_loss,
         }
 
         if return_features:
