@@ -8,7 +8,7 @@ Implements multiple few-shot adaptation strategies:
 4. Linear probing for baseline comparison
 """
 
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 import torch
 import torch.nn as nn

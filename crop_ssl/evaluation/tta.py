@@ -5,7 +5,7 @@ Applies multiple augmentations at test time and aggregates predictions
 for improved accuracy and calibration.
 """
 
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 import torch
 import torch.nn as nn

@@ -12,7 +12,7 @@ Key features:
 - Centering to prevent mode collapse
 """
 
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 import torch
 import torch.nn as nn

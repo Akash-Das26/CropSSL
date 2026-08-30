@@ -6,7 +6,7 @@ the model focuses on for disease classification.
 """
 
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional
 
 import torch
 import torch.nn as nn

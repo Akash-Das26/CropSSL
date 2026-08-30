@@ -7,7 +7,7 @@ geographic variations) for robustness evaluation.
 """
 
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import torch
 from torch.utils.data import Dataset

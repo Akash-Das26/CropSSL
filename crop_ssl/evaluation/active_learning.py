@@ -5,7 +5,7 @@ Selects the most informative unlabeled samples for annotation,
 maximizing model performance with minimal labeling effort.
 """
 
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List
 
 import torch
 import torch.nn as nn

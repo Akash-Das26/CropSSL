@@ -8,7 +8,7 @@ Implements multiple sampling strategies for few-shot learning:
 """
 
 import random
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List
 
 import torch
 from torch.utils.data import Dataset, Sampler

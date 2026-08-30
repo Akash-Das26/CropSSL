@@ -6,7 +6,7 @@ standard augmentations for SimCLR/MoCo, and reconstruction targets for MAE.
 """
 
 import random
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
 import torch
 import torchvision.transforms as T
