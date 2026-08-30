@@ -20,6 +20,7 @@ from typing import Dict, List, Optional
 import torch
 import torch.nn.functional as F
 from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -105,6 +106,47 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ============================================================
+# Rate Limiter Middleware
+# ============================================================
+from collections import defaultdict
+import threading
+
+_rate_limits: Dict[str, List[float]] = defaultdict(list)
+_rate_lock = threading.Lock()
+RATE_LIMIT_MAX = 60  # requests
+RATE_LIMIT_WINDOW = 60  # seconds
+
+
+@app.middleware("http")
+async def rate_limit_and_logging_middleware(request, call_next):
+    """Rate limiting + request logging middleware."""
+    client_ip = request.client.host if request.client else "unknown"
+    start = time.time()
+
+    # Rate limiting
+    with _rate_lock:
+        now = time.time()
+        _rate_limits[client_ip] = [t for t in _rate_limits[client_ip] if now - t < RATE_LIMIT_WINDOW]
+        if len(_rate_limits[client_ip]) >= RATE_LIMIT_MAX:
+            from fastapi.responses import JSONResponse
+            return JSONResponse(
+                status_code=429,
+                content={"error": "Rate limit exceeded", "retry_after": RATE_LIMIT_WINDOW},
+            )
+        _rate_limits[client_ip].append(now)
+
+    response = await call_next(request)
+    elapsed = (time.time() - start) * 1000
+
+    # Log non-health requests
+    if request.url.path not in ("/", "/health"):
+        print(f"  {request.method} {request.url.path} → {response.status_code} ({elapsed:.0f}ms)")
+
+    response.headers["X-Process-Time"] = f"{elapsed:.1f}ms"
+    return response
 
 
 # ============================================================
@@ -535,14 +577,99 @@ async def list_datasets():
     }
 
 
+@app.post("/predict/batch")
+async def predict_batch(
+    files: List[UploadFile] = File(...),
+    model_name: Optional[str] = None,
+):
+    """Batch predict multiple images at once (up to 10)."""
+    if len(files) > 10:
+        raise HTTPException(400, "Max 10 images per batch")
+
+    model = _get_model(model_name)
+    results = []
+    total_time = 0.0
+
+    for f in files:
+        contents = await f.read()
+        try:
+            tensor = _preprocess_image(contents)
+            tensor = tensor.to(DEVICE)
+            start = time.time()
+            with torch.no_grad():
+                if hasattr(model, "encode"):
+                    features = model.encode(tensor)
+                    logits = features[:, :NUM_CLASSES]
+                else:
+                    logits = model(tensor)
+                probs = F.softmax(logits, dim=-1)
+            elapsed = (time.time() - start) * 1000
+            total_time += elapsed
+            top5p, top5i = probs.topk(5, dim=-1)
+            top_idx = top5i[0][0].item()
+            if top_idx >= NUM_CLASSES:
+                top_idx = 0
+            results.append({
+                "filename": f.filename,
+                "prediction": DISEASE_CLASSES[top_idx],
+                "confidence": round(top5p[0][0].item() * 100, 2),
+                "inference_time_ms": round(elapsed, 2),
+            })
+        except Exception as e:
+            results.append({"filename": f.filename, "error": str(e)})
+
+    return {
+        "results": results,
+        "total_images": len(results),
+        "total_time_ms": round(total_time, 2),
+        "avg_time_ms": round(total_time / max(len(results), 1), 2),
+        "model_used": model_name or ACTIVE_MODEL or "unknown",
+    }
+
+
+@app.get("/system/metrics")
+async def system_metrics():
+    """System metrics for monitoring."""
+    import sys
+    import os
+    metrics = {
+        "uptime_seconds": round(time.time() - START_TIME, 1),
+        "uptime_human": _format_uptime(time.time() - START_TIME),
+        "device": DEVICE,
+        "models_loaded": len(MODELS),
+        "active_model": ACTIVE_MODEL,
+        "training_jobs": len(TRAINING_JOBS),
+        "python_version": sys.version,
+        "pid": os.getpid(),
+    }
+    if torch.cuda.is_available():
+        metrics["gpu_name"] = torch.cuda.get_device_name(0)
+        metrics["gpu_memory_used_mb"] = round(torch.cuda.memory_allocated(0) / 1024**2, 1)
+        metrics["gpu_memory_total_mb"] = round(torch.cuda.get_device_properties(0).total_mem / 1024**2, 1)
+    return metrics
+
+
+def _format_uptime(seconds: float) -> str:
+    h, r = divmod(int(seconds), 3600)
+    m, s = divmod(r, 60)
+    if h > 0:
+        return f"{h}h {m}m {s}s"
+    elif m > 0:
+        return f"{m}m {s}s"
+    return f"{s}s"
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
     """Catch-all exception handler for production robustness."""
-    return {
-        "error": str(exc),
-        "type": type(exc).__name__,
-        "detail": traceback.format_exc() if not isinstance(exc, HTTPException) else None,
-    }
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": str(exc),
+            "type": type(exc).__name__,
+            "detail": traceback.format_exc() if not isinstance(exc, HTTPException) else None,
+        },
+    )
 
 
 # ============================================================
