@@ -3317,16 +3317,20 @@ def test_cosine_scheduler_full_cycle():
 
 def test_tta_prediction_consistency():
     """TTA should produce consistent results on same input."""
+    import random as _random
+    import numpy as _np
     from crop_ssl.evaluation.tta import TestTimeAugmentation
     from crop_ssl.models.backbones.vit import vit_small_patch16
     model = vit_small_patch16(num_classes=10)
     tta = TestTimeAugmentation(model, num_augmentations=5, scales=[224], flip=False)
     from PIL import Image
-    import numpy as np
-    img = Image.fromarray(np.random.randint(0, 255, (224, 224, 3), dtype=np.uint8))
+    img = Image.fromarray(_np.random.randint(0, 255, (224, 224, 3), dtype=_np.uint8))
+    # Seed before each call to ensure deterministic augmentations
+    torch.manual_seed(42); _random.seed(42); _np.random.seed(42)
     r1 = tta.predict(img)
+    torch.manual_seed(42); _random.seed(42); _np.random.seed(42)
     r2 = tta.predict(img)
-    # Same image should produce same prediction (deterministic augmentations)
+    # Same image with same seeds should produce same prediction
     assert r1["pred"] == r2["pred"], f"Predictions differ: {r1['pred']} vs {r2['pred']}"
     print(f"    TTA consistency: same prediction on same input ✓")
 
