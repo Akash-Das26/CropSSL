@@ -117,11 +117,6 @@ class LoRAAdapter(nn.Module):
                     # Replace the module in the backbone
                     self._replace_module(name, lora_layer)
 
-        print(
-            f"Added LoRA to {len(self.lora_modules)} layers "
-            f"(rank={rank}, alpha={alpha})"
-        )
-
     def _replace_module(self, target_name: str, new_module: nn.Module):
         """Replace a module in the backbone by name path."""
         parts = target_name.split(".")
