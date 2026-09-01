@@ -285,3 +285,48 @@ def get_test_transform(size: int = 224) -> T.Compose:
             std=[0.229, 0.224, 0.225],
         ),
     ])
+
+
+def get_simclr_augmentation(size: int = 224) -> SimCLRTransform:
+    """Get SimCLR two-view augmentation pipeline.
+
+    Returns a SimCLRTransform that produces two augmented views per call.
+    Usage: v1, v2 = transform(img)
+
+    Args:
+        size: Output image size.
+
+    Returns:
+        SimCLRTransform instance (callable).
+    """
+    return SimCLRTransform(size=size)
+
+
+def get_multicrop_augmentation(
+    global_size: int = 224,
+    local_size: int = 96,
+    global_crops: int = 2,
+    local_crops: int = 8,
+) -> MultiCropTransform:
+    """Get DINOv2-style multi-crop augmentation pipeline.
+
+    Returns a MultiCropTransform that produces global_crops + local_crops
+    augmented crops per image.
+
+    Args:
+        global_size: Size for global crops.
+        local_size: Size for local crops.
+        global_crops: Number of global crops.
+        local_crops: Number of local crops.
+
+    Returns:
+        MultiCropTransform instance (callable).
+    """
+    return MultiCropTransform(
+        global_crops_number=global_crops,
+        local_crops_number=local_crops,
+        global_crops_scale=(0.4, 1.0),
+        local_crops_scale=(0.05, 0.4),
+        global_size=global_size,
+        local_size=local_size,
+    )
