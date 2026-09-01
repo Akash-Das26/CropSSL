@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 import torch
+import torchvision.transforms as transforms
 from torch.utils.data import Dataset
 from PIL import Image
 
@@ -75,7 +76,10 @@ class ICassava2019Dataset(Dataset):
     ):
         self.root = Path(root)
         self.split = split
-        self.transform = transform
+        self.transform = transform or transforms.Compose([
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+        ])
         self.target_transform = target_transform
 
         self.data_dir = self.root / "iCassava2019"

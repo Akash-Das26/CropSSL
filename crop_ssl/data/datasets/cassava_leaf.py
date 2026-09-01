@@ -14,6 +14,7 @@ from typing import Optional, Tuple
 
 import numpy as np
 import torch
+import torchvision.transforms as transforms
 from torch.utils.data import Dataset
 from PIL import Image
 
@@ -54,7 +55,10 @@ class CassavaLeafDataset(Dataset):
     ):
         self.root = Path(root)
         self.split = split
-        self.transform = transform
+        self.transform = transform or transforms.Compose([
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+        ])
         self.target_transform = target_transform
 
         self.data_dir = self.root / "cassava-leaf-disease" / "train_images"
