@@ -47,3 +47,4 @@ Thumbs.db
 *.tmp
 *.bak
 crop_ssl/.users.json
+.model_registry/

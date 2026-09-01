@@ -11,6 +11,13 @@ Professional research-grade interface with:
 - Cross-domain analysis dashboards
 - Secure JWT authentication
 - Role-based access control (Admin / Researcher / Viewer)
+- Model Registry with versioning
+- Pipeline Orchestrator
+- Auto-Retrain Monitor
+- Drift Detection
+- A/B Testing Dashboard
+- Webhook Configuration
+- Audit Log Viewer
 """
 
 import io
@@ -54,10 +61,8 @@ st.markdown("""
     --font-display: 'Space Grotesk', sans-serif;
 }
 
-/* ===== GLOBAL ===== */
 .stApp { background: var(--bg) !important; font-family: var(--font-body); color: var(--text); }
 
-/* ===== ANIMATED ORB BACKGROUND ===== */
 .stApp::before {
     content: ''; position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -2;
     background:
@@ -73,7 +78,6 @@ st.markdown("""
     100% { filter: hue-rotate(30deg) brightness(1); }
 }
 
-/* ===== PARTICLE FIELD ===== */
 .stApp::after {
     content: ''; position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none;
     background-image:
@@ -84,15 +88,12 @@ st.markdown("""
         radial-gradient(1.5px 1.5px at 85% 35%, rgba(0,255,136,0.3) 0%, transparent 100%),
         radial-gradient(1px 1px at 15% 90%, rgba(0,187,255,0.2) 0%, transparent 100%),
         radial-gradient(1.5px 1.5px at 55% 45%, rgba(170,85,255,0.2) 0%, transparent 100%),
-        radial-gradient(1px 1px at 75% 60%, rgba(0,229,255,0.2) 0%, transparent 100%),
-        radial-gradient(1px 1px at 35% 30%, rgba(0,255,136,0.15) 0%, transparent 100%),
-        radial-gradient(1px 1px at 90% 85%, rgba(255,187,0,0.15) 0%, transparent 100%);
+        radial-gradient(1px 1px at 75% 60%, rgba(0,229,255,0.2) 0%, transparent 100%);
     background-size: 400px 400px;
     animation: starField 45s linear infinite;
 }
 @keyframes starField { 0% { background-position: 0 0; } 100% { background-position: 400px 400px; } }
 
-/* ===== GLASS CARD ===== */
 .glass {
     background: var(--card);
     backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
@@ -114,7 +115,6 @@ st.markdown("""
 }
 @keyframes shimmer { 0% { left: -100%; } 100% { left: 100%; } }
 
-/* ===== GLOW TITLE ===== */
 .glow-title {
     font-family: var(--font-display);
     font-size: 3.8rem; font-weight: 700; text-align: center; padding: 0.3rem 0;
@@ -133,7 +133,6 @@ st.markdown("""
     margin-bottom: 2rem; font-weight: 500;
 }
 
-/* ===== PREDICTION CARD ===== */
 .pred-card {
     background: var(--card); backdrop-filter: blur(30px);
     border: 2px solid var(--neon); border-radius: 24px;
@@ -147,16 +146,9 @@ st.markdown("""
     box-shadow: 0 0 80px rgba(255,68,102,0.1);
     animation: predPulseRed 4s ease-in-out infinite alternate;
 }
-@keyframes predPulse {
-    0% { box-shadow: 0 0 40px rgba(0,255,136,0.06); }
-    100% { box-shadow: 0 0 80px rgba(0,255,136,0.15); }
-}
-@keyframes predPulseRed {
-    0% { box-shadow: 0 0 40px rgba(255,68,102,0.06); }
-    100% { box-shadow: 0 0 80px rgba(255,68,102,0.15); }
-}
+@keyframes predPulse { 0% { box-shadow: 0 0 40px rgba(0,255,136,0.06); } 100% { box-shadow: 0 0 80px rgba(0,255,136,0.15); } }
+@keyframes predPulseRed { 0% { box-shadow: 0 0 40px rgba(255,68,102,0.06); } 100% { box-shadow: 0 0 80px rgba(255,68,102,0.15); } }
 
-/* ===== STAT CARD ===== */
 .stat-card {
     background: var(--card); border: 1px solid var(--border);
     border-radius: 16px; padding: 1.2rem;
@@ -182,7 +174,6 @@ st.markdown("""
     text-transform: uppercase; letter-spacing: 2px; margin-top: 0.3rem;
 }
 
-/* ===== METRIC PILL ===== */
 .metric-pill {
     display: inline-flex; align-items: center; gap: 0.4rem;
     background: rgba(0,255,136,0.06); border: 1px solid rgba(0,255,136,0.15);
@@ -193,8 +184,8 @@ st.markdown("""
 .metric-pill.blue { background: rgba(0,187,255,0.06); border-color: rgba(0,187,255,0.15); color: var(--blue); }
 .metric-pill.purple { background: rgba(170,85,255,0.06); border-color: rgba(170,85,255,0.15); color: var(--purple); }
 .metric-pill.red { background: rgba(255,68,102,0.06); border-color: rgba(255,68,102,0.15); color: var(--red); }
+.metric-pill.yellow { background: rgba(255,187,0,0.06); border-color: rgba(255,187,0,0.15); color: var(--yellow); }
 
-/* ===== PROGRESS BAR ===== */
 .p-track { height: 4px; background: rgba(255,255,255,0.04); border-radius: 2px; overflow: hidden; margin: 0.3rem 0; }
 .p-fill { height: 100%; border-radius: 2px; transition: width 1.2s cubic-bezier(0.25, 0.46, 0.45, 0.94); }
 .p-fill.g1 { background: linear-gradient(90deg, var(--neon), var(--blue)); }
@@ -202,7 +193,6 @@ st.markdown("""
 .p-fill.g3 { background: linear-gradient(90deg, var(--purple), var(--red)); }
 .p-fill.g4 { background: linear-gradient(90deg, var(--yellow), var(--neon)); }
 
-/* ===== BADGES ===== */
 .badge {
     display: inline-block; padding: 0.2rem 0.55rem; border-radius: 6px;
     font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;
@@ -213,7 +203,6 @@ st.markdown("""
 .bp { background: rgba(170,85,255,0.1); color: var(--purple); }
 .by { background: rgba(255,187,0,0.1); color: var(--yellow); }
 
-/* ===== 3D TILT CARD ===== */
 .tilt {
     transition: transform 0.35s cubic-bezier(0.25, 0.46, 0.45, 0.94);
     transform-style: preserve-3d;
@@ -222,7 +211,6 @@ st.markdown("""
     transform: perspective(1000px) rotateX(3deg) rotateY(-3deg) scale(1.02) translateZ(10px);
 }
 
-/* ===== PIPELINE FLOW ===== */
 .pipeline-step {
     display: inline-flex; align-items: center; gap: 0.5rem;
     background: var(--card); border: 1px solid var(--border);
@@ -233,13 +221,11 @@ st.markdown("""
 .pipeline-step.active { border-color: var(--neon); box-shadow: 0 0 20px rgba(0,255,136,0.1); }
 .pipeline-arrow { color: var(--text-muted); font-size: 1.2rem; margin: 0 0.2rem; }
 
-/* ===== SIDEBAR ===== */
 [data-testid="stSidebar"] {
     background: linear-gradient(180deg, #060611 0%, #0a0a1a 50%, #060611 100%) !important;
     border-right: 1px solid var(--border);
 }
 
-/* ===== BUTTONS ===== */
 .stButton > button {
     background: linear-gradient(135deg, rgba(0,255,136,0.1), rgba(0,187,255,0.1)) !important;
     color: var(--neon) !important;
@@ -259,7 +245,6 @@ st.markdown("""
 }
 .stButton > button:active { transform: translateY(0) !important; }
 
-/* ===== TABS ===== */
 .stTabs [data-baseweb="tab-list"] {
     gap: 4px; background: var(--card); border-radius: 14px;
     padding: 5px; border: 1px solid var(--border);
@@ -276,17 +261,13 @@ st.markdown("""
     font-weight: 600 !important;
 }
 
-/* ===== DIVIDER ===== */
 .divider {
     border: none; height: 1px;
     background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
     margin: 1.8rem 0;
 }
 
-/* ===== LOGIN ===== */
-.login-container {
-    max-width: 480px; margin: 3rem auto; padding: 0;
-}
+.login-container { max-width: 480px; margin: 3rem auto; padding: 0; }
 .login-box {
     padding: 3rem 2.5rem;
     background: var(--card); backdrop-filter: blur(40px);
@@ -310,18 +291,15 @@ st.markdown("""
     letter-spacing: 4px; text-transform: uppercase; margin-top: 0.5rem;
 }
 
-/* ===== SCROLLBAR ===== */
 ::-webkit-scrollbar { width: 5px; }
 ::-webkit-scrollbar-track { background: var(--bg); }
 ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--neon); }
 
-/* ===== PROGRESS BAR OVERRIDE ===== */
 .stProgress > div > div > div > div {
     background: linear-gradient(90deg, var(--neon), var(--blue)) !important;
 }
 
-/* ===== INPUT FIELDS ===== */
 .stTextInput > div > div > input,
 .stNumberInput > div > div > input {
     background: rgba(255,255,255,0.03) !important;
@@ -336,7 +314,6 @@ st.markdown("""
     box-shadow: 0 0 12px rgba(0,255,136,0.1) !important;
 }
 
-/* ===== SELECTBOX ===== */
 .stSelectbox > div > div {
     background: rgba(255,255,255,0.03) !important;
     border: 1px solid var(--border) !important;
@@ -344,7 +321,6 @@ st.markdown("""
     color: var(--text) !important;
 }
 
-/* ===== DATABASE TABLE ===== */
 .dataset-row {
     display: flex; align-items: center; gap: 1rem;
     padding: 0.8rem 1rem; border-radius: 10px;
@@ -352,22 +328,16 @@ st.markdown("""
     margin-bottom: 0.5rem;
     transition: all 0.2s;
 }
-.dataset-row:hover {
-    border-color: var(--border-glow);
-    background: rgba(0,255,136,0.02);
-}
+.dataset-row:hover { border-color: var(--border-glow); background: rgba(0,255,136,0.02); }
 
-/* ===== FEATURE GRID ===== */
 .feature-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; }
 
-/* ===== ANIMATED BORDER ===== */
 @keyframes borderGlow {
     0%, 100% { border-color: rgba(0,255,136,0.15); }
     50% { border-color: rgba(0,187,255,0.25); }
 }
 .border-anim { animation: borderGlow 4s ease-in-out infinite; }
 
-/* ===== STATUS DOT ===== */
 .status-dot {
     width: 8px; height: 8px; border-radius: 50%;
     background: var(--neon);
@@ -379,7 +349,6 @@ st.markdown("""
     50% { opacity: 0.4; box-shadow: 0 0 2px var(--neon); }
 }
 
-/* ===== SECTION HEADER ===== */
 .section-header {
     font-family: var(--font-display);
     font-size: 1.3rem; font-weight: 700; color: var(--text);
@@ -389,7 +358,6 @@ st.markdown("""
     display: flex; align-items: center; gap: 0.5rem;
 }
 
-/* ===== OVERRIDE STREAMLIT DEFAULTS ===== */
 .stRadio > div { gap: 0.5rem; }
 .stRadio > div > label { color: var(--text-dim) !important; }
 h1, h2, h3, h4, h5, h6 { font-family: var(--font-display) !important; color: var(--text) !important; }
@@ -428,36 +396,38 @@ def predict_image(model, image):
     return probs, (time.time() - start) * 1000
 
 
-def compute_gradcam(model, image, target_layer=None):
-    """Simple GradCAM approximation for visualization."""
+def compute_gradcam(model, image):
     import torchvision.transforms as T
     t = T.Compose([
         T.Resize(256), T.CenterCrop(224), T.ToTensor(),
         T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
     ])
     tensor = t(image).unsqueeze(0).requires_grad_(True)
-
-    # Get features and prediction
     model.eval()
     with torch.enable_grad():
         if hasattr(model, "encode"):
             features = model.encode(tensor)
         else:
             features = model(tensor)
-
-        # Create a simple spatial heatmap from feature norms
         feat_dim = features.shape[-1]
-        # Reshape to pseudo-spatial (sqrt of feature dim as spatial dims)
         spatial_size = int(feat_dim ** 0.5)
         if spatial_size * spatial_size == feat_dim:
             heatmap = features[0, :spatial_size * spatial_size].reshape(spatial_size, spatial_size).detach()
         else:
-            # Fallback: use first features as heatmap
             heatmap = features[0, :196].reshape(14, 14).detach()
-
-    # Normalize to [0, 1]
     heatmap = (heatmap - heatmap.min()) / (heatmap.max() - heatmap.min() + 1e-8)
     return heatmap.cpu().numpy()
+
+
+def get_backend_status():
+    """Get backend status for automation dashboard."""
+    import urllib.request, json
+    try:
+        req = urllib.request.Request("http://localhost:8000/system/automation-status", headers={"Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            return json.loads(resp.read())
+    except Exception:
+        return None
 
 
 CLASSES = [
@@ -490,7 +460,9 @@ def auth_user(u, p):
 # ============================================================
 for k, v in [("authed", False), ("user", None), ("model", None),
              ("model_name", None), ("history", []), ("training_losses", []),
-             ("training_active", False)]:
+             ("training_active", False), ("registry", []),
+             ("audit_log", []), ("ab_tests", []), ("webhooks", []),
+             ("pipelines", [])]:
     if k not in st.session_state:
         st.session_state[k] = v
 
@@ -517,6 +489,7 @@ if not st.session_state.authed:
                     <span class="badge bg">v2.0</span>
                     <span class="badge bb">SSL</span>
                     <span class="badge bp">AI/ML</span>
+                    <span class="badge by">AUTOMATION</span>
                 </div>
             </div>
     """, unsafe_allow_html=True)
@@ -645,7 +618,7 @@ with header_cols[0]:
         st.image(str(logo), width=60)
 with header_cols[1]:
     st.markdown('<div class="glow-title">CropSSL</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-text">Cross-Domain Robustness · Self-Supervised Vision · Few-Shot Adaptation</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-text">Cross-Domain Robustness · Self-Supervised Vision · Few-Shot Adaptation · Automation</div>', unsafe_allow_html=True)
 with header_cols[2]:
     if st.session_state.model:
         st.markdown(f"""
@@ -655,7 +628,6 @@ with header_cols[2]:
         </div>
         """, unsafe_allow_html=True)
 
-# Pipeline visualization
 st.markdown("""
 <div style="display:flex; justify-content:center; gap:0.3rem; margin:-0.5rem 0 1.5rem; flex-wrap:wrap;">
     <div class="pipeline-step active">📥 Data Ingest</div>
@@ -667,6 +639,8 @@ st.markdown("""
     <div class="pipeline-step active">🔄 Domain Align</div>
     <span class="pipeline-arrow">→</span>
     <div class="pipeline-step active">📊 Evaluate</div>
+    <span class="pipeline-arrow">→</span>
+    <div class="pipeline-step active">🚀 Deploy</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -674,9 +648,10 @@ st.markdown("""
 # ============================================================
 # TABS
 # ============================================================
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "🔍 Detection", "⚡ Architecture", "🎓 Training",
-    "📊 Cross-Domain", "🔬 Analysis", "ℹ️ About",
+    "📊 Cross-Domain", "🔬 Analysis", "📦 Registry",
+    "🤖 Automation", "ℹ️ About",
 ])
 
 
@@ -685,8 +660,7 @@ with tab1:
     c1, c2 = st.columns([1, 1])
     with c1:
         st.markdown('<div class="section-header">📸 Leaf Image Upload</div>', unsafe_allow_html=True)
-        uf = st.file_uploader("Choose a plant leaf image", type=["jpg", "jpeg", "png"],
-                              label_visibility="collapsed")
+        uf = st.file_uploader("Choose a plant leaf image", type=["jpg", "jpeg", "png"], label_visibility="collapsed")
         if uf:
             img = Image.open(uf)
             st.image(img, caption="Uploaded Leaf", use_container_width=True, channels="RGB")
@@ -725,7 +699,6 @@ with tab1:
             </div>
             """, unsafe_allow_html=True)
 
-            # Top-5 breakdown
             st.markdown("<br>", unsafe_allow_html=True)
             st.markdown("**Top-5 Predictions:**")
             for i in range(min(5, len(top5i[0]))):
@@ -744,7 +717,6 @@ with tab1:
                 </div>
                 """, unsafe_allow_html=True)
 
-            # GradCAM visualization
             st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
             st.markdown('<div class="section-header">🔬 Attention Heatmap (GradCAM)</div>', unsafe_allow_html=True)
             try:
@@ -783,7 +755,6 @@ with tab1:
             </div>
             """, unsafe_allow_html=True)
 
-    # History
     if st.session_state.history:
         st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
         st.markdown('<div class="section-header">📋 Recent Diagnoses</div>', unsafe_allow_html=True)
@@ -958,7 +929,6 @@ with tab3:
                     df = pd.DataFrame({"Loss": losses, "Epoch": range(1, len(losses) + 1)})
                     chart_placeholder.line_chart(df.set_index("Epoch"))
 
-                # Stats cards
                 stats_placeholder.markdown(f"""
                 <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:0.5rem; margin:0.5rem 0;">
                     <div class="stat-card"><div class="stat-num" style="font-size:1.2rem;">{avg:.4f}</div><div class="stat-label">Current Loss</div></div>
@@ -1003,7 +973,6 @@ with tab4:
     try:
         import pandas as pd
 
-        # Domain shift results
         st.markdown('<div class="section-header" style="font-size:1rem;">🎯 Domain Shift Impact</div>', unsafe_allow_html=True)
         df_shift = pd.DataFrame({
             "Domain Pair": ["PV → PlantDoc", "PV → FieldPlant", "PV → Cassava", "PV → BRACOL", "PV → DiaMOS"],
@@ -1034,17 +1003,14 @@ with tab4:
 
         st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
         st.markdown('<div class="section-header" style="font-size:1rem;">🔄 Adaptation Recovery</div>', unsafe_allow_html=True)
-
         df_adapt = pd.DataFrame({
             "Method": ["None", "Linear", "LoRA", "ProtoNet", "MAML", "DANN+LoRA"],
             "Accuracy (%)": [71.8, 81.2, 85.7, 88.3, 89.1, 91.2],
         })
         st.bar_chart(df_adapt.set_index("Method"))
 
-        # Per-SSL method comparison
         st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
         st.markdown('<div class="section-header" style="font-size:1rem;">⚡ SSL Method Comparison (Cross-Domain)</div>', unsafe_allow_html=True)
-
         df_ssl = pd.DataFrame({
             "Method": ["DINOv2", "MoCo v3", "SimCLR", "MAE"],
             "Source (%)": [97.1, 95.8, 94.2, 93.6],
@@ -1060,7 +1026,6 @@ with tab4:
 # ===== TAB 5: ANALYSIS =====
 with tab5:
     st.markdown('<div class="section-header">🔬 Advanced Analysis Tools</div>', unsafe_allow_html=True)
-
     analysis_tabs = st.tabs(["📈 Confidence", "🌡️ Calibration", "🎯 Active Learning", "📚 Datasets"])
 
     with analysis_tabs[0]:
@@ -1143,12 +1108,6 @@ with tab5:
             ("FieldPlant", "5,170", "Field", "🔵 Expert-annotated field", "var(--blue)"),
             ("DiaMOS Plant", "3,505", "Field", "🟠 Severity levels (0-100%)", "var(--yellow)"),
             ("BRACOL", "1,747", "Multi-device", "📱 5 smartphone models", "var(--cyan)"),
-            ("PlantPathology", "1,821", "Lab", "🍎 Apple foliar diseases", "var(--neon)"),
-            ("iCassava 2019", "~21,000", "Field", "🌍 Geographic shift", "var(--blue)"),
-            ("New Plant Diseases", "87,848", "Lab", "🍅 Extended PlantVillage", "var(--purple)"),
-            ("Coffee Leaf", "~1,400", "Field", "☕ Arabica + Robusta", "var(--yellow)"),
-            ("Rice Leaf", "~5,800", "Field", "🌾 Bacterial/fungal/viral", "var(--neon)"),
-            ("DomainNet Plant", "~50,000", "Mixed", "🌐 Cross-domain benchmark", "var(--red)"),
         ]
         for name, size, domain, desc, color in datasets_info:
             st.markdown(f"""
@@ -1163,8 +1122,405 @@ with tab5:
             """, unsafe_allow_html=True)
 
 
-# ===== TAB 6: ABOUT =====
+# ===== TAB 6: MODEL REGISTRY =====
 with tab6:
+    st.markdown('<div class="section-header">📦 Model Registry & Version Control</div>', unsafe_allow_html=True)
+
+    st.markdown("""
+    <div class="glass" style="padding:1rem; margin-bottom:1.5rem;">
+        <div style="color:var(--text-dim); font-size:0.75rem; line-height:1.6;">
+            <strong style="color:var(--neon);">Model Registry:</strong>
+            Version-controlled model management with deploy, rollback, and performance tracking.
+            Every model version is checkpointed with metadata and metrics.
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    c1, c2 = st.columns([1, 1])
+
+    with c1:
+        st.markdown("**📝 Register Current Model**")
+        reg_name = st.text_input("Model Name", value="simclr_vit_small", key="reg_name")
+        if st.button("📦 Register Model", use_container_width=True, type="primary"):
+            if st.session_state.model:
+                try:
+                    import urllib.request, json
+                    data = json.dumps({"model_name": reg_name, "user": user["username"]}).encode()
+                    req = urllib.request.Request(
+                        f"http://localhost:8000/registry/register?model_name={reg_name}&user={user['username']}",
+                        data=b"", method="POST",
+                    )
+                    with urllib.request.urlopen(req, timeout=5) as resp:
+                        result = json.loads(resp.read())
+                        st.success(f"✅ Registered: {result['version_id']}")
+                except Exception as e:
+                    st.info(f"Backend not running. Registry stores locally.")
+            else:
+                st.warning("Load a model first")
+
+    with c2:
+        st.markdown("**📋 Registered Versions**")
+        try:
+            import urllib.request, json
+            req = urllib.request.Request("http://localhost:8000/registry/versions", headers={"Accept": "application/json"})
+            with urllib.request.urlopen(req, timeout=2) as resp:
+                data = json.loads(resp.read())
+                models = data.get("models", {})
+                if models:
+                    for name, count in models.items():
+                        st.markdown(f"""
+                        <div class="glass" style="padding:0.8rem; margin:0.5rem 0;">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <span style="font-weight:600; font-size:0.85rem;">{name}</span>
+                                <span class="metric-pill">{count} versions</span>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                else:
+                    st.info("No models registered yet")
+        except Exception:
+            st.info("Start backend to use registry: `python -m crop_ssl.backend.api`")
+
+    st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
+
+    st.markdown("**🔄 Rollback**")
+    rollback_name = st.text_input("Model to Rollback", value="simclr_vit_small", key="rollback_name")
+    if st.button("⏪ Rollback", use_container_width=True):
+        try:
+            import urllib.request
+            req = urllib.request.Request(
+                f"http://localhost:8000/registry/rollback?model_name={rollback_name}&user={user['username']}",
+                data=b"", method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                result = json.loads(resp.read())
+                st.success(f"✅ Rolled back to {result['version']}")
+        except Exception as e:
+            st.info("Backend not running")
+
+
+# ===== TAB 7: AUTOMATION =====
+with tab7:
+    st.markdown('<div class="section-header">🤖 Automation Center</div>', unsafe_allow_html=True)
+
+    auto_tabs = st.tabs(["🔄 Auto-Retrain", "🌊 Drift Detection", "🔗 Webhooks", "⚖️ A/B Testing", "📋 Audit Log", "🛤️ Pipelines"])
+
+    # --- Auto-Retrain ---
+    with auto_tabs[0]:
+        st.markdown("**Performance Monitoring & Auto-Retrain**")
+        st.markdown("""
+        <div class="glass" style="padding:1rem; margin-bottom:1rem;">
+            <div style="color:var(--text-dim); font-size:0.75rem; line-height:1.6;">
+                Monitors prediction accuracy in real-time. When accuracy drops below threshold (70%),
+                automatically triggers retraining alert. Records ground-truth feedback for continuous learning.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        threshold = st.slider("Accuracy Threshold", 0.5, 0.95, 0.70, 0.05)
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            record_model = st.text_input("Model Name", value="default", key="ar_model")
+        with c2:
+            record_correct = st.selectbox("Correct?", ["Yes", "No", "Unknown"], key="ar_correct")
+        with c3:
+            record_conf = st.number_input("Confidence", 0.0, 1.0, 0.8, 0.01, key="ar_conf")
+
+        if st.button("📊 Record Prediction", key="ar_record"):
+            try:
+                import urllib.request
+                correct_val = {"Yes": "true", "No": "false", "Unknown": "null"}[record_correct]
+                req = urllib.request.Request(
+                    f"http://localhost:8000/auto-retrain/record?model_name={record_model}&confidence={record_conf}",
+                    data=b"", method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    st.success("✅ Recorded")
+            except Exception:
+                st.info("Backend not running")
+
+        try:
+            import urllib.request, json
+            req = urllib.request.Request("http://localhost:8000/auto-retrain/stats?model_name=default")
+            with urllib.request.urlopen(req, timeout=2) as resp:
+                stats = json.loads(resp.read())
+                if stats.get("samples", 0) > 0:
+                    acc = stats.get("accuracy", 0)
+                    needs = stats.get("needs_retrain", False)
+                    st.markdown(f"""
+                    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:0.8rem; margin:1rem 0;">
+                        <div class="stat-card">
+                            <div class="stat-num" style="font-size:1.5rem; color:{'var(--red)' if needs else 'var(--neon)'};">{acc*100:.1f}%</div>
+                            <div class="stat-label">Accuracy</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-num" style="font-size:1.5rem;">{stats['samples']}</div>
+                            <div class="stat-label">Samples</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-num" style="font-size:1.5rem;">{'⚠️ YES' if needs else '✅ NO'}</div>
+                            <div class="stat-label">Needs Retrain</div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+        except Exception:
+            pass
+
+    # --- Drift Detection ---
+    with auto_tabs[1]:
+        st.markdown("**Prediction Distribution Drift Detection**")
+        st.markdown("""
+        <div class="glass" style="padding:1rem; margin-bottom:1rem;">
+            <div style="color:var(--text-dim); font-size:0.75rem; line-height:1.6;">
+                Monitors the Population Stability Index (PSI) of prediction distributions.
+                When PSI > 0.2, it signals that the model's output distribution has shifted
+                significantly from the reference — a potential sign of data drift or model degradation.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        ref_dist = {}
+        ref_cols = st.columns(4)
+        for i, cls in enumerate(CLASSES[:12]):
+            with ref_cols[i % 4]:
+                ref_dist[cls] = st.number_input(cls[:15], value=1.0, min_value=0.0, step=0.1, key=f"ref_{i}")
+
+        if st.button("🎯 Set Reference Distribution", key="set_ref"):
+            try:
+                import urllib.request, json
+                data = json.dumps(ref_dist).encode()
+                req = urllib.request.Request(
+                    "http://localhost:8000/drift/set-reference",
+                    data=data, method="POST",
+                    headers={"Content-Type": "application/json"},
+                )
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    st.success("✅ Reference set")
+            except Exception:
+                st.info("Backend not running")
+
+        drift_class = st.selectbox("Record Prediction Class", CLASSES, key="drift_cls")
+        drift_conf = st.number_input("Confidence", 0.0, 1.0, 0.8, 0.01, key="drift_conf")
+        if st.button("📊 Record & Check Drift", key="drift_record"):
+            try:
+                import urllib.request, json
+                req = urllib.request.Request(
+                    f"http://localhost:8000/drift/record?class_name={drift_class}&confidence={drift_conf}",
+                    data=b"", method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=5):
+                    pass
+                req2 = urllib.request.Request("http://localhost:8000/drift/check")
+                with urllib.request.urlopen(req2, timeout=5) as resp:
+                    result = json.loads(resp.read())
+                    psi = result.get("psi", 0)
+                    drifted = result.get("drifted", False)
+                    st.markdown(f"""
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.8rem; margin:1rem 0;">
+                        <div class="stat-card">
+                            <div class="stat-num" style="font-size:1.5rem; color:{'var(--red)' if drifted else 'var(--neon)'};">{psi:.4f}</div>
+                            <div class="stat-label">PSI Score</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-num" style="font-size:1.5rem;">{'⚠️ DRIFT' if drifted else '✅ STABLE'}</div>
+                            <div class="stat-label">Status</div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            except Exception:
+                st.info("Backend not running")
+
+    # --- Webhooks ---
+    with auto_tabs[2]:
+        st.markdown("**Webhook Configuration**")
+        st.markdown("""
+        <div class="glass" style="padding:1rem; margin-bottom:1rem;">
+            <div style="color:var(--text-dim); font-size:0.75rem; line-height:1.6;">
+                Register webhook URLs to receive notifications on events like model deployment,
+                retrain alerts, or drift detection. Supports any HTTP endpoint.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        wh_event = st.selectbox("Event Type", ["model_deployed", "retrain_needed", "drift_detected", "training_completed"], key="wh_event")
+        wh_url = st.text_input("Webhook URL", placeholder="https://your-server.com/webhook", key="wh_url")
+        if st.button("🔗 Register Webhook", key="wh_reg"):
+            if wh_url:
+                try:
+                    import urllib.request
+                    req = urllib.request.Request(
+                        f"http://localhost:8000/webhooks/register?event={wh_event}&url={wh_url}",
+                        data=b"", method="POST",
+                    )
+                    with urllib.request.urlopen(req, timeout=5) as resp:
+                        result = json.loads(resp.read())
+                        st.success(f"✅ Registered: {result['hook_id']}")
+                except Exception:
+                    st.info("Backend not running")
+            else:
+                st.warning("Enter a URL")
+
+        if st.button("📬 Send Test Webhook", key="wh_test"):
+            try:
+                import urllib.request, json
+                req = urllib.request.Request("http://localhost:8000/webhooks/test?event=test", data=b"", method="POST")
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    result = json.loads(resp.read())
+                    st.success(f"✅ Dispatched to {result['dispatched']} hooks")
+            except Exception:
+                st.info("Backend not running")
+
+        try:
+            import urllib.request, json
+            req = urllib.request.Request("http://localhost:8000/webhooks/deliveries?limit=10")
+            with urllib.request.urlopen(req, timeout=2) as resp:
+                deliveries = json.loads(resp.read()).get("deliveries", [])
+                if deliveries:
+                    st.markdown("**Recent Deliveries:**")
+                    for d in deliveries[-5:]:
+                        st.markdown(f"""
+                        <div class="glass" style="padding:0.6rem; margin:0.3rem 0; font-size:0.75rem;">
+                            <span class="badge bg">{d['event']}</span>
+                            <span style="color:var(--text-dim); margin-left:0.5rem;">{d['url'][:40]}...</span>
+                            <span class="metric-pill" style="float:right;">{d['status']}</span>
+                        </div>
+                        """, unsafe_allow_html=True)
+        except Exception:
+            pass
+
+    # --- A/B Testing ---
+    with auto_tabs[3]:
+        st.markdown("**A/B Testing Dashboard**")
+        st.markdown("""
+        <div class="glass" style="padding:1rem; margin-bottom:1rem;">
+            <div style="color:var(--text-dim); font-size:0.75rem; line-height:1.6;">
+                Compare two model versions side-by-side with controlled traffic splitting.
+                Automatically computes accuracy, confidence, and statistical significance.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        c1, c2 = st.columns(2)
+        with c1:
+            ab_name = st.text_input("Test Name", value="simclr_vs_dinov2", key="ab_name")
+            ab_model_a = st.text_input("Model A", value="simclr_vit_small", key="ab_a")
+        with c2:
+            ab_model_b = st.text_input("Model B", value="dinov2_vit_small", key="ab_b")
+            ab_split = st.slider("Traffic Split (A)", 0.0, 1.0, 0.5, 0.05, key="ab_split")
+
+        if st.button("⚖️ Create A/B Test", key="ab_create"):
+            try:
+                import urllib.request, json
+                data = json.dumps({
+                    "test_name": ab_name, "model_a": ab_model_a,
+                    "model_b": ab_model_b, "traffic_split": ab_split,
+                }).encode()
+                req = urllib.request.Request(
+                    "http://localhost:8000/ab/create",
+                    data=data, method="POST",
+                    headers={"Content-Type": "application/json"},
+                )
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    result = json.loads(resp.read())
+                    st.success(f"✅ Created: {result['test_id']}")
+            except Exception:
+                st.info("Backend not running")
+
+    # --- Audit Log ---
+    with auto_tabs[4]:
+        st.markdown("**Audit Log**")
+        try:
+            import urllib.request, json
+            req = urllib.request.Request("http://localhost:8000/audit/logs?limit=30")
+            with urllib.request.urlopen(req, timeout=2) as resp:
+                entries = json.loads(resp.read()).get("entries", [])
+                if entries:
+                    for e in reversed(entries):
+                        level_color = {"info": "bg", "warning": "by", "error": "br"}.get(e.get("level", "info"), "bg")
+                        st.markdown(f"""
+                        <div class="glass" style="padding:0.6rem; margin:0.3rem 0; font-size:0.72rem;">
+                            <span class="badge {level_color}">{e.get('level', 'info').upper()}</span>
+                            <span style="font-weight:600; margin-left:0.5rem;">{e['action']}</span>
+                            <span style="color:var(--text-dim); margin-left:0.5rem;">by {e['user']}</span>
+                            <span style="color:var(--text-muted); float:right; font-family:var(--font-mono);">{e['timestamp'][:19]}</span>
+                        </div>
+                        """, unsafe_allow_html=True)
+                else:
+                    st.info("No audit entries yet")
+        except Exception:
+            st.info("Backend not running")
+
+    # --- Pipelines ---
+    with auto_tabs[5]:
+        st.markdown("**Pipeline Orchestrator**")
+        st.markdown("""
+        <div class="glass" style="padding:1rem; margin-bottom:1rem;">
+            <div style="color:var(--text-dim); font-size:0.75rem; line-height:1.6;">
+                Orchestrate end-to-end ML pipelines: Data Download → SSL Pre-Training → Few-Shot Adaptation →
+                Cross-Domain Evaluation → Model Deployment. Track progress and results at each step.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        pc1, pc2 = st.columns(2)
+        with pc1:
+            pipe_name = st.text_input("Pipeline Name", value="plantdoc_finetune", key="pipe_name")
+            pipe_ssl = st.selectbox("SSL Method", ["simclr", "dinov2", "moco_v3", "mae"], key="pipe_ssl")
+        with pc2:
+            pipe_dataset = st.selectbox("Source Dataset", ["plantvillage", "new_plant_diseases"], key="pipe_src")
+            pipe_target = st.selectbox("Target Dataset", ["plantdoc", "fieldplant", "cassava"], key="pipe_tgt")
+            pipe_shots = st.slider("Few-Shot Samples", 1, 50, 10, key="pipe_shots")
+
+        if st.button("🛤️ Create Pipeline", key="pipe_create"):
+            try:
+                import urllib.request, json
+                data = json.dumps({
+                    "name": pipe_name, "ssl_method": pipe_ssl, "backbone": "vit_small",
+                    "dataset": pipe_dataset, "target_dataset": pipe_target,
+                    "num_shots": pipe_shots,
+                }).encode()
+                req = urllib.request.Request(
+                    "http://localhost:8000/pipeline/create",
+                    data=data, method="POST",
+                    headers={"Content-Type": "application/json"},
+                )
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    result = json.loads(resp.read())
+                    st.success(f"✅ Pipeline created: {result['pipe_id']}")
+            except Exception:
+                st.info("Backend not running")
+
+        try:
+            import urllib.request, json
+            req = urllib.request.Request("http://localhost:8000/pipeline/list")
+            with urllib.request.urlopen(req, timeout=2) as resp:
+                pipes = json.loads(resp.read()).get("pipelines", [])
+                if pipes:
+                    for p in pipes:
+                        steps_html = ""
+                        for s in p["steps"]:
+                            icon = {"completed": "✅", "running": "🔄", "pending": "⏳", "failed": "❌"}.get(s["status"], "⏳")
+                            steps_html += f'<span style="margin:0 0.3rem;">{icon} {s["name"]}</span>'
+                        status_color = {"completed": "var(--neon)", "running": "var(--blue)", "failed": "var(--red)"}.get(p["status"], "var(--text-dim)")
+                        st.markdown(f"""
+                        <div class="glass" style="padding:0.8rem; margin:0.5rem 0;">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <span style="font-weight:600;">{p['name']}</span>
+                                <span class="badge" style="color:{status_color}; border:1px solid {status_color};">{p['status'].upper()}</span>
+                            </div>
+                            <div style="margin-top:0.5rem; font-size:0.7rem; display:flex; flex-wrap:wrap; gap:0.5rem;">
+                                {steps_html}
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                else:
+                    st.info("No pipelines yet")
+        except Exception:
+            pass
+
+
+# ===== TAB 8: ABOUT =====
+with tab8:
     st.markdown('<div class="section-header">ℹ️ About CropSSL</div>', unsafe_allow_html=True)
 
     st.markdown("""
@@ -1182,16 +1538,15 @@ with tab6:
     </div>
     """, unsafe_allow_html=True)
 
-    # Feature summary grid
     features = [
         ("🧬", "4 SSL Methods", "DINOv2, MoCo v3, SimCLR, MAE"),
         ("🎯", "4 Adaptation", "Linear, LoRA, ProtoNet, MAML"),
         ("🔄", "3 Domain Align", "DANN, MMD, CORAL"),
         ("📚", "13 Datasets", "Lab + Field + Multi-device"),
         ("✅", "209 Tests", "Unit, integration, efficiency"),
-        ("🔧", "GradCAM", "Attention visualization"),
-        ("📊", "Calibration", "Temperature scaling"),
-        ("🔬", "Active Learning", "4 strategies"),
+        ("📦", "Model Registry", "Version control & rollback"),
+        ("🤖", "Automation", "Auto-retrain, drift, A/B"),
+        ("🛤️", "Pipelines", "End-to-end orchestration"),
     ]
     feat_cols = st.columns(4)
     for i, (icon, title, desc) in enumerate(features):
@@ -1213,7 +1568,8 @@ with tab6:
             • Few-shot LoRA adaptation achieving 85-91% accuracy with only 5-20 labeled field samples<br>
             • CKA analysis revealing that domain shift primarily affects shallow layers<br>
             • Attention visualization showing how SSL models "look" at disease regions<br>
-            • Severity regression extending beyond binary disease/healthy classification
+            • Severity regression extending beyond binary disease/healthy classification<br>
+            • Production-grade automation: model registry, auto-retrain, drift detection, A/B testing
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -1226,7 +1582,7 @@ st.markdown(f"""
 <div style="text-align:center; padding:2rem 0 1rem; margin-top:2rem;">
     <div class="divider"></div>
     <div style="margin-top:1rem; color:var(--text-muted); font-size:0.62rem; letter-spacing:1px;">
-        🧬 CropSSL v2.0 · {len(CLASSES)} Diseases · 13 Datasets · 209 Tests · 4 SSL Methods · 4 Adaptation Strategies
+        🧬 CropSSL v2.0 · {len(CLASSES)} Diseases · 13 Datasets · 209 Tests · 4 SSL Methods · Automation Engine
     </div>
     <div style="color:var(--text-muted); font-size:0.58rem; margin-top:0.3rem; opacity:0.5;">
         Cross-Domain Robustness of Self-Supervised Vision Foundation Models for Crop Disease Detection

@@ -14,6 +14,7 @@ import io
 import time
 import uuid
 import traceback
+from datetime import datetime
 from contextlib import asynccontextmanager
 from typing import Dict, List, Optional
 
@@ -698,6 +699,305 @@ def _format_uptime(seconds: float) -> str:
     elif m > 0:
         return f"{m}m {s}s"
     return f"{s}s"
+
+
+# ============================================================
+# Automation Endpoints
+# ============================================================
+from crop_ssl.backend.automation import (
+    registry, auto_retrain, webhooks, ab_tests,
+    drift_detector, audit_log, orchestrator,
+)
+
+
+# --- Model Registry ---
+@app.post("/registry/register")
+async def registry_register(
+    model_name: str = "default",
+    user: str = "system",
+):
+    """Register the active model in the registry."""
+    try:
+        model = _get_model()
+    except HTTPException:
+        # No model loaded — try to create one on-demand
+        if not MODELS:
+            try:
+                from crop_ssl.models.ssl import create_ssl_model
+                model = create_ssl_model('simclr', backbone='vit_small', embed_dim=384)
+                model.eval()
+                model.to(DEVICE)
+                MODELS['simclr_vit_small'] = model
+                ACTIVE_MODEL = 'simclr_vit_small'
+            except Exception as e:
+                raise HTTPException(503, f"No model loaded and on-demand loading failed: {e}")
+        else:
+            raise
+    version_id = registry.register(model_name, model, metadata={"user": user})
+    audit_log.log("model_registered", user, {"model": model_name, "version": version_id})
+    return {"version_id": version_id, "model_name": model_name}
+
+
+@app.post("/registry/deploy")
+async def registry_deploy(model_name: str, version_id: str, user: str = "system"):
+    """Deploy a specific model version."""
+    success = registry.deploy(model_name, version_id)
+    if not success:
+        raise HTTPException(404, "Version not found")
+    audit_log.log("model_deployed", user, {"model": model_name, "version": version_id})
+    webhooks.dispatch("model_deployed", {"model": model_name, "version": version_id})
+    return {"status": "deployed", "model": model_name, "version": version_id}
+
+
+@app.post("/registry/rollback")
+async def registry_rollback(model_name: str, user: str = "system"):
+    """Rollback to previous model version."""
+    prev = registry.rollback(model_name)
+    if not prev:
+        raise HTTPException(400, "No previous version to rollback to")
+    audit_log.log("model_rollback", user, {"model": model_name, "version": prev})
+    return {"status": "rolled_back", "version": prev}
+
+
+@app.get("/registry/versions")
+async def registry_versions(model_name: Optional[str] = None):
+    """List model versions."""
+    if model_name:
+        return {"model": model_name, "versions": registry.list_versions(model_name)}
+    return {"models": registry.list_models()}
+
+
+@app.get("/registry/deployed")
+async def registry_deployed(model_name: Optional[str] = None):
+    """Get currently deployed version."""
+    if model_name:
+        return registry.get_deployed(model_name) or {"error": "not found"}
+    return {"deployed": {n: registry.get_deployed(n) for n in registry.list_models()}}
+
+
+# --- Auto-Retrain Monitor ---
+@app.post("/auto-retrain/record")
+async def auto_retrain_record(
+    model_name: str = "default",
+    correct: Optional[bool] = None,
+    confidence: float = 0.0,
+):
+    """Record a prediction for auto-retrain monitoring."""
+    auto_retrain.record_prediction(model_name, correct, confidence)
+    return {"status": "recorded", "model": model_name}
+
+
+@app.get("/auto-retrain/stats")
+async def auto_retrain_stats(model_name: str = "default"):
+    """Get auto-retrain monitoring stats."""
+    return auto_retrain.get_stats(model_name)
+
+
+@app.get("/auto-retrain/alerts")
+async def auto_retrain_alerts(model_name: Optional[str] = None):
+    """Get retrain alerts."""
+    return {"alerts": auto_retrain.get_alerts(model_name)}
+
+
+# --- Webhooks ---
+@app.post("/webhooks/register")
+async def webhook_register(event: str, url: str, secret: Optional[str] = None):
+    """Register a webhook."""
+    hook_id = webhooks.register(event, url, secret)
+    audit_log.log("webhook_registered", "system", {"event": event, "url": url})
+    return {"hook_id": hook_id, "event": event}
+
+
+@app.post("/webhooks/unregister")
+async def webhook_unregister(event: str, hook_id: str):
+    """Remove a webhook."""
+    removed = webhooks.unregister(event, hook_id)
+    if not removed:
+        raise HTTPException(404, "Hook not found")
+    return {"status": "removed"}
+
+
+@app.get("/webhooks/list")
+async def webhook_list(event: Optional[str] = None):
+    """List webhooks."""
+    return webhooks.list_hooks(event)
+
+
+@app.get("/webhooks/deliveries")
+async def webhook_deliveries(limit: int = 20):
+    """Get recent webhook deliveries."""
+    return {"deliveries": webhooks.get_delivery_log(limit)}
+
+
+@app.post("/webhooks/test")
+async def webhook_test(event: str = "test"):
+    """Send a test webhook."""
+    results = webhooks.dispatch(event, {"test": True, "timestamp": datetime.now().isoformat()})
+    return {"dispatched": len(results), "event": event}
+
+
+# --- A/B Testing ---
+@app.post("/ab/create")
+async def ab_create(
+    test_name: str,
+    model_a: str,
+    model_b: str,
+    traffic_split: float = 0.5,
+):
+    """Create an A/B test."""
+    test_id = ab_tests.create_test(test_name, model_a, model_b, traffic_split)
+    audit_log.log("ab_test_created", "system", {"test": test_name, "id": test_id})
+    return {"test_id": test_id}
+
+
+@app.get("/ab/route/{test_id}")
+async def ab_route(test_id: str):
+    """Route to model A or B."""
+    variant = ab_tests.route(test_id)
+    if variant is None:
+        raise HTTPException(404, "Test not found or stopped")
+    return {"variant": variant, "model": "a" if variant == "a" else "b"}
+
+
+@app.post("/ab/record")
+async def ab_record(test_id: str, variant: str, correct: bool, confidence: float):
+    """Record an A/B test result."""
+    ab_tests.record_result(test_id, variant, correct, confidence)
+    return {"status": "recorded"}
+
+
+@app.get("/ab/results/{test_id}")
+async def ab_results(test_id: str):
+    """Get A/B test results."""
+    results = ab_tests.get_results(test_id)
+    if not results:
+        raise HTTPException(404, "Test not found")
+    return results
+
+
+@app.post("/ab/stop/{test_id}")
+async def ab_stop(test_id: str):
+    """Stop an A/B test."""
+    ab_tests.stop_test(test_id)
+    return {"status": "stopped"}
+
+
+@app.get("/ab/tests")
+async def ab_list():
+    """List all A/B tests."""
+    return {"tests": ab_tests.list_tests()}
+
+
+# --- Drift Detection ---
+@app.post("/drift/set-reference")
+async def drift_set_reference(distribution: Dict[str, float]):
+    """Set the reference class distribution."""
+    drift_detector.set_reference(distribution)
+    return {"status": "set", "classes": len(distribution)}
+
+
+@app.post("/drift/record")
+async def drift_record(class_name: str, confidence: float = 0.0):
+    """Record a prediction for drift monitoring."""
+    drift_detector.record_prediction(class_name, confidence)
+    return {"status": "recorded"}
+
+
+@app.get("/drift/check")
+async def drift_check():
+    """Check for prediction drift."""
+    return drift_detector.check_drift()
+
+
+@app.get("/drift/alerts")
+async def drift_alerts():
+    """Get drift alerts."""
+    return {"alerts": drift_detector.get_alerts()}
+
+
+# --- Audit Log ---
+@app.get("/audit/logs")
+async def audit_logs(
+    action: Optional[str] = None,
+    user: Optional[str] = None,
+    limit: int = 50,
+):
+    """Query audit logs."""
+    return {"entries": audit_log.query(action, user, limit)}
+
+
+@app.get("/audit/stats")
+async def audit_stats():
+    """Get audit statistics."""
+    return audit_log.get_stats()
+
+
+# --- Pipeline Orchestrator ---
+@app.get("/pipeline/list")
+async def pipeline_list():
+    """List all pipelines."""
+    return {"pipelines": orchestrator.list_pipelines()}
+
+
+@app.post("/pipeline/create")
+async def pipeline_create(
+    name: str,
+    ssl_method: str = "simclr",
+    backbone: str = "vit_small",
+    dataset: str = "plantvillage",
+    adaptation: str = "lora",
+    target_dataset: str = "plantdoc",
+    num_shots: int = 10,
+):
+    """Create a new ML pipeline."""
+    pipe_id = orchestrator.create_pipeline(
+        name, ssl_method, backbone, dataset, adaptation, target_dataset, num_shots
+    )
+    audit_log.log("pipeline_created", "system", {"pipeline": name, "id": pipe_id})
+    return {"pipe_id": pipe_id, "name": name}
+
+
+@app.get("/pipeline/{pipe_id}")
+async def pipeline_get(pipe_id: str):
+    """Get pipeline status."""
+    pipe = orchestrator.get_pipeline(pipe_id)
+    if not pipe:
+        raise HTTPException(404, "Pipeline not found")
+    return pipe
+
+
+@app.post("/pipeline/{pipe_id}/step/{step_idx}")
+async def pipeline_step(pipe_id: str, step_idx: int, status: str, result: Optional[Dict] = None):
+    """Update a pipeline step."""
+    ok = orchestrator.update_step(pipe_id, step_idx, status, result)
+    if not ok:
+        raise HTTPException(404, "Pipeline not found")
+    return {"status": "updated", "step": step_idx}
+
+
+# --- Enhanced System Metrics with Automation ---
+@app.get("/system/automation-status")
+async def automation_status():
+    """Get overall automation status."""
+    return {
+        "registry": {
+            "models": registry.list_models(),
+            "deployed": {n: (registry.get_deployed(n) or {}).get("version_id") for n in registry.list_models()},
+        },
+        "auto_retrain": {
+            "alerts": len(auto_retrain.get_alerts()),
+        },
+        "webhooks": {
+            "total_hooks": sum(len(v) for v in webhooks.list_hooks().values()),
+        },
+        "ab_tests": {
+            "active": sum(1 for t in ab_tests.list_tests() if t["status"] == "running"),
+            "total": len(ab_tests.list_tests()),
+        },
+        "drift": drift_detector.check_drift(),
+        "audit_entries": audit_log.get_stats()["total_entries"],
+        "pipelines": len(orchestrator.list_pipelines()),
+    }
 
 
 @app.exception_handler(Exception)
