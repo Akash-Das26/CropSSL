@@ -272,6 +272,39 @@ class VisionTransformer(nn.Module):
             nn.init.ones_(m.weight)
             nn.init.zeros_(m.bias)
 
+    def _interpolate_pos_embed(self, num_tokens: int, device):
+        """Interpolate positional embedding when input size differs from training size.
+
+        Args:
+            num_tokens: Number of patch tokens (excluding CLS) from current input.
+            device: Target device.
+
+        Returns:
+            Interpolated positional embedding (1, num_tokens+1, D).
+        """
+        if num_tokens == self.pos_embed.shape[1] - 1:
+            return self.pos_embed
+        # Separate CLS and patch positional embeddings
+        cls_pos = self.pos_embed[:, :1, :]  # (1, 1, D)
+        patch_pos = self.pos_embed[:, 1:, :]  # (1, N_train, D)
+        # Interpolate patch positional embeddings using bicubic
+        import math
+        n_train = patch_pos.shape[1]
+        h_train = w_train = int(math.sqrt(n_train))
+        n_test = num_tokens
+        h_test = w_test = int(math.sqrt(n_test))
+        if h_train * w_train == n_train and h_test * w_test == n_test:
+            patch_pos_2d = patch_pos.reshape(1, h_train, w_train, -1).permute(0, 3, 1, 2)
+            patch_pos_2d = torch.nn.functional.interpolate(
+                patch_pos_2d, size=(h_test, w_test), mode='bicubic', align_corners=False
+            )
+            patch_pos = patch_pos_2d.permute(0, 2, 3, 1).reshape(1, n_test, -1)
+        else:
+            # Fallback: repeat-pad
+            repeat = (num_tokens // n_train) + 1
+            patch_pos = patch_pos.repeat(1, repeat, 1)[:, :num_tokens, :]
+        return torch.cat([cls_pos, patch_pos], dim=1)
+
     def forward_features(
         self, x: torch.Tensor
     ) -> torch.Tensor:
@@ -288,7 +321,9 @@ class VisionTransformer(nn.Module):
 
         cls_tokens = self.cls_token.expand(B, -1, -1)
         x = torch.cat([cls_tokens, x], dim=1)
-        x = self.pos_drop(x + self.pos_embed)
+        # Interpolate positional embedding if input size differs
+        pos_embed = self._interpolate_pos_embed(x.shape[1] - 1, x.device)
+        x = self.pos_drop(x + pos_embed)
 
         for block in self.blocks:
             x = block(x)
@@ -329,7 +364,8 @@ class VisionTransformer(nn.Module):
 
         cls_tokens = self.cls_token.expand(B, -1, -1)
         x = torch.cat([cls_tokens, x], dim=1)
-        x = self.pos_drop(x + self.pos_embed)
+        pos_embed = self._interpolate_pos_embed(x.shape[1] - 1, x.device)
+        x = self.pos_drop(x + pos_embed)
 
         attn_maps = []
         for block in self.blocks:

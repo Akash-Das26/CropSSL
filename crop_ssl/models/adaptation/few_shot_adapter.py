@@ -351,6 +351,11 @@ class FewShotAdapter(nn.Module):
             Dict with 'logits' and optional 'prototypes'.
         """
         if self.adaptation_method == "prototypical":
+            if support_images is None or support_labels is None:
+                raise ValueError(
+                    "PrototypicalNetwork requires support_images and support_labels. "
+                    "Call forward(x, support_images=..., support_labels=..., n_way=...)"
+                )
             return self.proto_net(
                 query_images=x,
                 support_images=support_images,
