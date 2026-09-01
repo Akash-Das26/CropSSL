@@ -92,19 +92,26 @@ class GradCAM:
         """Generate Grad-CAM heatmap.
 
         Args:
-            input_tensor: Input image (1, C, H, W).
+            input_tensor: Input image (1, C, H, W) or (C, H, W).
+                          If batch > 1, only the first sample is used.
             target_class: Class index. If None, uses predicted class.
 
         Returns:
             Heatmap tensor (H, W) normalized to [0, 1].
         """
         self.model.eval()
-        input_tensor = input_tensor.to(self.device).requires_grad_(True)
+
+        # Ensure batch dimension
+        if input_tensor.dim() == 3:
+            input_tensor = input_tensor.unsqueeze(0)
+
+        # Always use first sample for single-image GradCAM
+        input_tensor = input_tensor[:1].to(self.device).requires_grad_(True)
 
         # Forward pass
         output = self.model(input_tensor)
         if output.dim() > 1:
-            output = output.squeeze(0)
+            output = output[0]  # Take first sample: (C,)
 
         if target_class is None:
             target_class = output.argmax().item()

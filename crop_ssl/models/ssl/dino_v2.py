@@ -19,7 +19,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from crop_ssl.models.backbones.vit import (
-    VisionTransformer,
     vit_small_patch16,
     vit_base_patch16,
     vit_large_patch16,

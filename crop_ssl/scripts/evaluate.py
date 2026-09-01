@@ -27,10 +27,7 @@ from crop_ssl.data.transforms.augmentations import get_default_train_transform, 
 from crop_ssl.models.ssl import create_ssl_model
 from crop_ssl.models.adaptation.few_shot_adapter import FewShotAdapter
 from crop_ssl.evaluation.metrics import (
-    compute_accuracy,
-    compute_per_class_metrics,
     compute_domain_shift_metrics,
-    compute_calibration_metrics,
     EvaluationSuite,
 )
 from crop_ssl.utils.reproducibility import set_seed
