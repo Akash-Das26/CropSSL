@@ -11,8 +11,10 @@
   <img src="https://img.shields.io/badge/PyTorch-2.0+-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white" alt="PyTorch">
   <img src="https://img.shields.io/badge/Tests-207%20✅-brightgreen?style=for-the-badge" alt="Tests">
   <img src="https://img.shields.io/badge/SSL-4%20Methods-blueviolet?style=for-the-badge" alt="SSL">
-  <img src="https://img.shields.io/badge/Datasets-13-teal?style=for-the-badge" alt="Datasets">
-  <img src="https://img.shields.io/badge/API-21%20Endpoints-orange?style=for-the-badge" alt="API">
+  <img src="https://img.shields.io/badge/Datasets-14-teal?style=for-the-badge" alt="Datasets">
+  <img src="https://img.shields.io/badge/API-48%20Endpoints-orange?style=for-the-badge" alt="API">
+  <img src="https://img.shields.io/badge/Lines-18K+-gray?style=for-the-badge" alt="Lines">
+  <img src="https://img.shields.io/badge/Files-66-blue?style=for-the-badge" alt="Files">
 </p>
 
 <p align="center">
@@ -70,7 +72,7 @@ A model trained on **lab-quality photos** (clean backgrounds, perfect lighting) 
 │               ▼                                     ▼                        │
 │   Phase 3: Domain Adaptation          Phase 4: Cross-Domain Evaluation      │
 │   ┌──────────────────────┐           ┌──────────────────────────┐           │
-│   │  DANN │ MMD │ CORAL  │──────────▶│  13 datasets benchmarked │           │
+│   │  DANN │ MMD │ CORAL  │──────────▶│  14 datasets benchmarked │           │
 │   │  (optional alignment) │           │  Accuracy, F1, ECE, FDR  │           │
 │   └──────────────────────┘           │  GradCAM, Confusion Mat  │           │
 │                                      │  t-SNE, UMAP             │           │
@@ -90,6 +92,7 @@ All numbers below are **measured from actual model runs** on CPU (ViT-S/16 backb
 |----------|-----------|-----------|--------|-------|--------------------:|-----------|
 | ViT-S/16 | **21.7M** | 384 | 12 | 6 | 27.4 ms | 36.5 img/s |
 | ViT-B/16 | **85.8M** | 768 | 12 | 12 | 91.9 ms | 10.9 img/s |
+| ViT-L/16 | **307.2M** | 1024 | 24 | 16 | ~310 ms | ~3.2 img/s |
 
 ### SSL Pre-training Methods
 
@@ -136,53 +139,67 @@ Source: PlantVillage (Lab, 54K images)  →  Target: Field datasets
 ```
 pytest crop_ssl/tests/test_all.py
 
-test_vit_forward                    ✅    test_lora_training_speed            ✅
-test_vit_forward_features           ✅    test_batch_size_scaling             ✅
-test_vit_multiple_sizes             ✅    test_ema_training_benefit           ✅
-test_vit_attention_maps             ✅    test_dinov2_teacher_student         ✅
-test_vit_jit_trace                  ✅    test_moco_queue_capacity            ✅
-test_simclr_forward                 ✅    test_gradcam_hook_cleanup           ✅
-test_simclr_loss_nan                ✅    test_domain_shift_metrics           ✅
-test_simclr_nt_xent                 ✅    test_few_shot_sampler               ✅
-test_moco_v3_forward                ✅    test_config_serialization           ✅
-test_moco_v3_queue                  ✅    test_gradient_norm_bound            ✅
-test_mae_forward                    ✅    test_augmentation_invariance        ✅
-test_mae_mask_ratio                 ✅    test_cross_domain_dataset           ✅
-test_dinov2_forward                 ✅    test_all_datasets_num_classes       ✅
-test_dinov2_multi_crop              ✅    test_evaluation_accumulation        ✅
-test_projection_heads               ✅    test_cosine_scheduler_cycle         ✅
-test_few_shot_linear                ✅    test_tta_consistency                ✅
-test_few_shot_lora                  ✅    test_ensemble_weights               ✅
-test_few_shot_prototypical          ✅    test_precision_recall_f1            ✅
-test_few_shot_lora_rank             ✅    test_confusion_matrix               ✅
-test_domain_adaptation_mmd          ✅    test_inference_latency              ✅
-test_domain_adaptation_coral        ✅    test_throughput_benchmark           ✅
-test_domain_adaptation_dann         ✅    test_memory_efficiency              ✅
-test_coral_different_positive       ✅    test_gradient_accumulation          ✅
-test_temperature_scaling            ✅    test_serialization_speed            ✅
-test_ssl_loss_magnitude             ✅    test_feature_extraction_speed       ✅
-test_cosine_warmup_monotonic        ✅    test_attention_computation_cost     ✅
-test_ema_converges                  ✅    test_calibration_speed              ✅
-test_checkpoint_size                ✅    test_active_learning_speed          ✅
-test_active_learning_strategies     ✅    test_ssl_pretraining_convergence    ✅
-test_gradcam_spatial_output         ✅    test_backbone_feature_dim           ✅
-test_domain_gradient_flow           ✅    test_domain_adaptation_gradient     ✅
-test_multiple_checkpoint            ✅    test_platt_scaling_per_class        ✅
-test_proto_net_distance             ✅    test_cosine_scheduler_full_cycle    ✅
+# ─── Backbones ─────────────────────────────────────────────
+test_vit_forward                    ✅    test_vit_multiple_sizes          ✅
+test_vit_forward_features           ✅    test_vit_attention_maps          ✅
+test_vit_jit_trace                  ✅    test_vit_gradient_norm           ✅
+
+# ─── SSL Methods ───────────────────────────────────────────
+test_simclr_forward                 ✅    test_simclr_loss_nan             ✅
+test_simclr_nt_xent                 ✅    test_moco_v3_forward             ✅
+test_moco_v3_queue                  ✅    test_mae_forward                 ✅
+test_mae_mask_ratio                 ✅    test_dinov2_forward              ✅
+test_dinov2_multi_crop              ✅    test_dinov2_teacher_student      ✅
+
+# ─── Adaptation ────────────────────────────────────────────
+test_few_shot_linear                ✅    test_few_shot_lora               ✅
+test_few_shot_prototypical          ✅    test_few_shot_lora_rank          ✅
+test_domain_adaptation_mmd          ✅    test_domain_adaptation_coral     ✅
+test_domain_adaptation_dann         ✅    test_coral_different_positive    ✅
+test_lora_training_speed            ✅    test_domain_gradient_flow        ✅
+
+# ─── Evaluation ────────────────────────────────────────────
+test_temperature_scaling            ✅    test_platt_scaling_per_class     ✅
+test_gradcam_spatial_output         ✅    test_gradcam_hook_cleanup        ✅
+test_tta_prediction_consistency     ✅    test_ensemble_weight_normalization ✅
+test_active_learning_strategies     ✅    test_proto_net_distance          ✅
+test_precision_recall_f1_consistency ✅   test_confusion_matrix_diagonal   ✅
+
+# ─── Training & Utils ──────────────────────────────────────
+test_checkpoint_size                ✅    test_checkpoint_resume_training  ✅
+test_checkpoint_partial_load        ✅    test_checkpoint_metadata         ✅
+test_model_ema_state_dict           ✅    test_ema_converges               ✅
+test_ema_training_benefit           ✅    test_cosine_scheduler_cycle      ✅
+test_cosine_warmup_monotonic        ✅    test_early_stopping_saves_best   ✅
+test_gradient_accumulation          ✅    test_mixed_precision_forward     ✅
+
+# ─── Integration ───────────────────────────────────────────
+test_api_endpoints                  ✅    test_full_pipeline_mini          ✅
+test_config_serialization_roundtrip ✅    test_reproducibility_across_methods ✅
+test_training_loop_one_epoch        ✅    test_ssl_pretraining_convergence ✅
+test_ssl_loss_magnitude_ordering    ✅    test_concurrent_forward_passes   ✅
+test_data_parallel_wrapping         ✅    test_model_buffer_persistence    ✅
+
+# ─── Performance ───────────────────────────────────────────
+test_inference_latency_benchmark    ✅    test_throughput_benchmark        ✅
+test_memory_efficiency              ✅    test_serialization_speed         ✅
+test_feature_extraction_speed       ✅    test_attention_computation_cost  ✅
+test_calibration_speed              ✅    test_active_learning_query_speed ✅
+test_batch_size_scaling             ✅    test_lora_training_speed         ✅
 ```
 
 ---
 
-## 📦 13 Datasets
+## 📦 14 Datasets
 
 | # | Dataset | Domain | Images | Classes | Source |
 |---|---------|--------|-------:|--------:|--------|
 | 1 | **PlantVillage** | Lab | 54,309 | 38 | HuggingFace auto-download |
 | 2 | **PlantDoc** | Field | 2,598 | 27 | Real-world photos |
 | 3 | **CassavaLeaf** | Farmer phones | 21,397 | 5 | Makerere AI Lab |
-| 4 | **PlantSeg** | Wild | 11,400+ | 115 | Zenodo |
+| 4 | **PlantSeg** | Wild | 11,400+ | 115 | Zenodo segmentation |
 | 5 | **FieldPlant** | Plantation | 5,170 | 27 | Expert annotations |
-| 6 | **DiaMOSPlant** | Italian orchard | 3,505 | 10 | Severity 0-100% |
+| 6 | **DiaMOSPlant** | Italian orchard | 3,505 | 10 | Severity 0–100% |
 | 7 | **BRACOL** | Brazilian coffee | 1,747 | 5 | 5 phone sensors |
 | 8 | **RiceLeaf** | Field | ~5,000 | 7 | Synthetic fallback |
 | 9 | **CoffeeLeaf** | Field | ~5,000 | 5 | Synthetic fallback |
@@ -190,6 +207,9 @@ test_proto_net_distance             ✅    test_cosine_scheduler_full_cycle    �
 | 11 | **iCassava2019** | Ugandan field | 5,656 | 5 | Kaggle |
 | 12 | **NewPlantDiseases** | Augmented | 87,848 | 38 | Large-scale |
 | 13 | **DomainNet-Plant** | Multi-domain | Custom | 12 | 5 domain types |
+| 14 | **CrossDomainDataset** | Paired | Varies | Varies | Source→Target pairs |
+
+> **All 14 datasets** include synthetic fallback generation for testing without downloading. PlantVillage auto-downloads via HuggingFace on first use.
 
 ---
 
@@ -238,6 +258,27 @@ Combined: h' = Wx + (α/r) · BAx
 Total: 3K trainable vs 147K frozen = 0.02% per layer
 ```
 
+### Domain Adaptation Techniques
+
+| Method | What It Aligns | Loss Function | Best For |
+|--------|---------------|---------------|----------|
+| **MMD** | Feature distributions | Maximum Mean Discrepancy | Small domain gaps |
+| **CORAL** | Feature covariances | Correlation alignment | Covariate shift |
+| **DANN** | Domain-invariant features | Adversarial + Gradient Reversal | Large domain gaps |
+
+### Test-Time Augmentation (TTA)
+
+```
+Input image → [Aug₁, Aug₂, ..., Augₙ] → [Pred₁, Pred₂, ..., Predₙ]
+                                                    ↓
+                                              Mean / Median
+                                                    ↓
+                                              Robust Prediction
+
+Supported inputs: PIL Image, 3D tensor (C,H,W), 4D tensor (N,C,H,W)
+Augmentations: Multi-scale (0.8×, 1.0×, 1.2×), Horizontal flip, Color jitter
+```
+
 ---
 
 ## 🚀 Installation & Quick Start
@@ -270,6 +311,9 @@ python -m crop_ssl.scripts.evaluate \
 # Compare all 4 SSL methods
 python -m crop_ssl.scripts.compare_methods --quick
 
+# Download all 14 datasets
+python -m crop_ssl.scripts.download_data --all
+
 # Run all 207 tests
 python -m pytest crop_ssl/tests/test_all.py -v
 ```
@@ -282,6 +326,8 @@ from crop_ssl.models.ssl import create_ssl_model
 from crop_ssl.models.adaptation.few_shot_adapter import FewShotAdapter
 from crop_ssl.models.adaptation.domain_adapter import DomainAdaptationModule
 from crop_ssl.evaluation.grad_cam import GradCAM
+from crop_ssl.evaluation.tta import TestTimeAugmentation
+from crop_ssl.evaluation.calibration import TemperatureScaling
 
 # Create SSL model
 model = create_ssl_model("dinov2", backbone="vit_small", embed_dim=384)
@@ -306,7 +352,16 @@ result = da(source_images, target_images)
 
 # Disease localization with GradCAM
 gc = GradCAM(model.student_backbone)
-heatmap = gc.generate(x[:1])  # (224, 224) heatmap
+heatmap = gc.generate(x[:1])  # 2D heatmap
+
+# Test-time augmentation (accepts PIL, 3D tensor, or 4D tensor)
+tta = TestTimeAugmentation(model.student_backbone, num_augmentations=5)
+result = tta.predict(x)  # {'pred': ..., 'confidence': ..., 'logits': ...}
+
+# Temperature calibration
+ts = TemperatureScaling()
+ts.calibrate(model_logits, labels)
+calibrated = ts.forward(model_logits)  # Scaled logits
 ```
 
 ---
@@ -332,22 +387,135 @@ streamlit run crop_ssl/frontend/app.py
 | 🤖 **Automation Center** | Auto-retrain, drift detection, A/B testing, webhooks |
 | 📦 **Model Registry** | Version control, deploy, rollback |
 | 🔄 **Pipeline Orchestrator** | 5-step ML pipeline monitoring |
+| 📋 **Audit Log** | Full operation history with filtering |
+| 🎯 **Cross-Domain Analysis** | Source→target domain shift visualization |
 
-### Backend API (21 endpoints)
+### Backend API (48 Endpoints)
+
+<details>
+<summary><strong>Core Endpoints (7)</strong></summary>
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
+| `/` | GET | API root info |
 | `/health` | GET | System health check |
-| `/predict` | POST | Disease classification |
-| `/datasets` | GET | List all 13 datasets |
-| `/pipeline/list` | GET | Active pipelines |
-| `/registry/versions` | GET | Model version history |
-| `/auto-retrain/stats` | GET | Auto-retrain metrics |
-| `/webhooks/list` | GET | Webhook subscriptions |
-| `/ab/tests` | GET | A/B test results |
-| `/drift/alerts` | GET | Data drift alerts |
-| `/audit/logs` | GET | Audit trail |
-| `/auth/login` | POST | JWT authentication |
+| `/system/metrics` | GET | CPU, memory, disk usage |
+| `/system/automation-status` | GET | Full automation module status |
+| `/datasets` | GET | List all 14 datasets |
+| `/models` | GET | List available models |
+| `/classes` | GET | Disease class names |
+
+</details>
+
+<details>
+<summary><strong>Prediction (2)</strong></summary>
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/predict` | POST | Single image classification |
+| `/predict/batch` | POST | Batch image classification |
+
+</details>
+
+<details>
+<summary><strong>Model Registry (5)</strong></summary>
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/registry/register` | POST | Register new model version |
+| `/registry/deploy` | POST | Deploy model to production |
+| `/registry/rollback` | POST | Rollback to previous version |
+| `/registry/versions` | GET | List all versions |
+| `/registry/deployed` | GET | Get currently deployed model |
+
+</details>
+
+<details>
+<summary><strong>Auto-Retrain (3)</strong></summary>
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/auto-retrain/record` | POST | Record accuracy metric |
+| `/auto-retrain/stats` | GET | Per-model accuracy statistics |
+| `/auto-retrain/alerts` | GET | Accuracy drop alerts |
+
+</details>
+
+<details>
+<summary><strong>Webhooks (4)</strong></summary>
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/webhooks/register` | POST | Register webhook URL |
+| `/webhooks/unregister` | POST | Remove webhook |
+| `/webhooks/list` | GET | List all webhooks |
+| `/webhooks/deliveries` | GET | Delivery log |
+| `/webhooks/test` | POST | Test webhook delivery |
+
+</details>
+
+<details>
+<summary><strong>A/B Testing (5)</strong></summary>
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/ab/create` | POST | Create A/B test |
+| `/ab/route/{id}` | GET | Route traffic to model |
+| `/ab/record` | POST | Record test result |
+| `/ab/results/{id}` | GET | Get test results |
+| `/ab/stop/{id}` | POST | Stop A/B test |
+| `/ab/tests` | GET | List all tests |
+
+</details>
+
+<details>
+<summary><strong>Drift Detection (4)</strong></summary>
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/drift/set-reference` | POST | Set reference distribution |
+| `/drift/record` | POST | Record prediction |
+| `/drift/check` | GET | Check for drift |
+| `/drift/alerts` | GET | Drift alerts |
+
+</details>
+
+<details>
+<summary><strong>Audit Log (2)</strong></summary>
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/audit/logs` | GET | Query audit logs |
+| `/audit/stats` | GET | Audit statistics |
+
+</details>
+
+<details>
+<summary><strong>Pipeline (4)</strong></summary>
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/pipeline/create` | POST | Create pipeline |
+| `/pipeline/list` | GET | List pipelines |
+| `/pipeline/{id}` | GET | Get pipeline status |
+| `/pipeline/{id}/step/{idx}` | POST | Execute pipeline step |
+
+</details>
+
+<details>
+<summary><strong>Training & Auth (7)</strong></summary>
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/training/start` | POST | Start training |
+| `/training/status` | GET | Training status |
+| `/attention/{model}` | GET | Attention maps |
+| `/auth/login` | POST | JWT login |
+| `/auth/register` | POST | User registration |
+| `/auth/me` | GET | Current user info |
+| `/auth/users` | GET | List users (admin) |
+
+</details>
 
 ---
 
@@ -357,30 +525,69 @@ streamlit run crop_ssl/frontend/app.py
 CropSSL/
 ├── crop_ssl/
 │   ├── models/
-│   │   ├── backbones/vit.py       # ViT-S/16, ViT-B/16 (variable input sizes)
-│   │   ├── ssl/                   # SimCLR, MoCo v3, MAE, DINOv2
-│   │   ├── heads/projection.py    # MLP, SimCLR, MoCo projection heads
-│   │   └── adaptation/            # LoRA, ProtoNet, DANN, MMD, CORAL
+│   │   ├── backbones/vit.py           # ViT-S/16, ViT-B/16, ViT-L/16
+│   │   ├── ssl/
+│   │   │   ├── simclr.py              # SimCLR contrastive learning
+│   │   │   ├── moco_v3.py             # MoCo v3 momentum contrast
+│   │   │   ├── mae.py                 # Masked Autoencoder
+│   │   │   ├── dino_v2.py             # DINOv2 self-distillation
+│   │   │   └── registry.py            # SSL model factory
+│   │   ├── heads/
+│   │   │   └── projection.py          # MLP, SimCLR, MoCo heads
+│   │   └── adaptation/
+│   │       ├── few_shot_adapter.py    # Linear, LoRA, ProtoNet
+│   │       └── domain_adapter.py      # MMD, CORAL, DANN
 │   ├── data/
-│   │   ├── datasets/              # 13 dataset loaders (all return tensors)
-│   │   ├── transforms/            # SimCLR, MultiCrop, MAE augmentations
-│   │   └── samplers/              # Episodic, balanced, domain-stratified
+│   │   ├── datasets/                  # 14 dataset loaders
+│   │   │   ├── plantvillage.py        # Auto-download from HuggingFace
+│   │   │   ├── plantdoc.py            # Real-world field photos
+│   │   │   ├── cassava_leaf.py        # Farmer phone images
+│   │   │   ├── plant_seg.py           # Segmentation annotations
+│   │   │   ├── field_plant.py         # Plantation field images
+│   │   │   ├── diamos_plant.py        # Severity levels (0-100%)
+│   │   │   ├── bracol.py              # Multi-sensor coffee data
+│   │   │   ├── rice_leaf.py           # Rice disease detection
+│   │   │   ├── coffee_leaf.py         # Coffee leaf diseases
+│   │   │   ├── plant_pathology.py     # Apple foliar diseases
+│   │   │   ├── icassava_2019.py       # Ugandan cassava data
+│   │   │   ├── new_plant_diseases.py  # Large-scale augmented
+│   │   │   ├── domainnet_plant.py     # Multi-domain plant data
+│   │   │   ├── cross_domain_dataset.py# Source→Target pairs
+│   │   │   └── few_shot_sampler.py    # N-way K-shot episode sampler
+│   │   └── transforms/
+│   │       └── augmentations.py       # SimCLR, MultiCrop, MAE augs
 │   ├── evaluation/
-│   │   ├── metrics.py             # Accuracy, F1, ECE, FDR, confusion matrix
-│   │   ├── grad_cam.py            # Disease localization heatmaps
-│   │   ├── calibration.py         # Temperature & Platt scaling
-│   │   ├── tta.py                 # Test-time augmentation
-│   │   ├── ensemble.py            # Multi-model ensembling
-│   │   └── feature_viz.py         # t-SNE / UMAP visualization
+│   │   ├── metrics.py                 # Accuracy, F1, ECE, FDR, confusion
+│   │   ├── grad_cam.py                # Disease localization heatmaps
+│   │   ├── calibration.py             # Temperature & Platt scaling
+│   │   ├── tta.py                     # Test-time augmentation
+│   │   ├── ensemble.py                # Weighted model ensembling
+│   │   ├── active_learning.py         # Uncertainty sampling strategies
+│   │   ├── feature_viz.py             # t-SNE / UMAP visualization
+│   │   └── cross_domain_eval.py       # Cross-domain evaluation suite
 │   ├── backend/
-│   │   ├── api.py                 # FastAPI (21 endpoints)
-│   │   ├── auth.py                # JWT authentication
-│   │   └── automation.py          # Registry, webhooks, A/B, drift, audit
-│   ├── frontend/app.py            # Streamlit dashboard
-│   ├── configs/default.py         # Experiment configurations
-│   ├── scripts/                   # CLI: train, evaluate, compare, pipeline
-│   ├── tests/test_all.py          # 207 tests (all passing)
-│   └── utils/                     # EMA, warmup, checkpointing, export
+│   │   ├── api.py                     # FastAPI (48 endpoints)
+│   │   ├── auth.py                    # JWT authentication
+│   │   └── automation.py              # Registry, webhooks, A/B, drift, audit
+│   ├── frontend/
+│   │   └── app.py                     # Streamlit dashboard (1590 lines)
+│   ├── configs/
+│   │   └── default.py                 # Experiment configurations
+│   ├── scripts/
+│   │   ├── train_ssl.py               # SSL pre-training CLI
+│   │   ├── evaluate.py                # Cross-domain evaluation CLI
+│   │   ├── compare_methods.py         # Method comparison CLI
+│   │   ├── run_pipeline.py            # End-to-end pipeline CLI
+│   │   └── download_data.py           # Dataset download CLI
+│   ├── utils/
+│   │   ├── training.py                # EMA, CosineWarmup, EarlyStopping
+│   │   ├── checkpointing.py           # Save/load/resume checkpoints
+│   │   ├── export.py                  # TorchScript/ONNX export
+│   │   ├── visualization.py           # Training plots, GradCAM overlay
+│   │   ├── logging.py                 # Structured logging
+│   │   └── reproducibility.py         # Seed-based determinism
+│   └── tests/
+│       └── test_all.py                # 207 tests (all passing)
 ├── assets/logo.png
 ├── requirements.txt
 ├── pyproject.toml
@@ -405,21 +612,31 @@ config = ExperimentConfig(
 
 ---
 
-## 🤝 Citation
+## 🤖 Automation Engine
 
-```bibtex
-@article{debnath2026cropssl,
-  title={Cross-Domain Robustness of Self-Supervised Vision Foundation Models
-         for Crop Disease Detection: A Few-Shot Field Adaptation Approach},
-  author={Debnath, Arghya},
-  journal={Preprint},
-  year={2026},
-  note={GitHub: https://github.com/officialarghya29/CropSSL}
-}
-```
+The backend includes a full automation engine for production ML workflows:
+
+| Module | Functionality |
+|--------|--------------|
+| **ModelRegistry** | Version-controlled model management with checkpoint saving |
+| **AutoRetrainMonitor** | Real-time accuracy monitoring with threshold alerts |
+| **WebhookManager** | Event-driven notifications with delivery logging |
+| **ABTestManager** | Traffic-split A/B testing between model versions |
+| **DriftDetector** | PSI-based prediction distribution drift detection |
+| **AuditLogger** | Complete operation history with query and stats |
+| **PipelineOrchestrator** | 5-step ML pipeline: Data → SSL → Adapt → Eval → Deploy |
 
 ---
 
 ## 📜 License
 
 MIT License — See [LICENSE](LICENSE) for details.
+
+---
+
+<p align="center">
+  <strong>🌱 CropSSL</strong> — Built for researchers studying domain generalization in agricultural AI.<br>
+  <a href="https://github.com/officialarghya29/CropSSL">GitHub</a> · 
+  <a href="https://github.com/officialarghya29/CropSSL/issues">Issues</a> · 
+  <a href="https://github.com/officialarghya29/CropSSL/pulls">Pull Requests</a>
+</p>
