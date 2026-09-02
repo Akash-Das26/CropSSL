@@ -102,6 +102,8 @@ class TestTimeAugmentation:
 
         # Convert tensor to PIL if needed
         if isinstance(image, torch.Tensor):
+            if image.dim() == 4:
+                image = image[0]  # Take first sample from batch
             if image.dim() == 3:
                 # Denormalize
                 mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
