@@ -6,7 +6,6 @@ PlantVillage is a controlled-environment dataset with 54,309 images of
 healthy and diseased plant leaves across 38 classes (tomato, potato, pepper).
 """
 
-import os
 from pathlib import Path
 from typing import Optional, Tuple
 

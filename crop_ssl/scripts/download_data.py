@@ -26,7 +26,6 @@ Supported datasets and their primary sources:
 """
 
 import argparse
-import os
 import sys
 from pathlib import Path
 

@@ -7,7 +7,6 @@ captured in uncontrolled environments — representing a significant
 domain shift from PlantVillage.
 """
 
-import os
 from pathlib import Path
 from typing import Optional, Tuple
 

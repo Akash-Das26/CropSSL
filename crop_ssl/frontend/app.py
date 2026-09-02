@@ -20,7 +20,6 @@ Professional research-grade interface with:
 - Audit Log Viewer
 """
 
-import io
 import time
 from pathlib import Path
 
