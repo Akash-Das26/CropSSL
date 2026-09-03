@@ -429,19 +429,23 @@ def get_backend_status():
         return None
 
 
+# Canonical class names — MUST match the backend's DISEASE_CLASSES exactly
+# so drift reference distributions line up with recorded predictions.
 CLASSES = [
     "Apple Scab", "Apple Black Rot", "Apple Cedar Rust", "Apple Healthy",
     "Blueberry Healthy", "Cherry Powdery Mildew", "Cherry Healthy",
-    "Corn Cercospora", "Corn Common Rust", "Corn Northern Blight",
+    "Corn Cercospora Leaf Spot", "Corn Common Rust", "Corn Northern Blight",
     "Corn Healthy", "Grape Black Rot", "Grape Esca", "Grape Leaf Blight",
     "Grape Healthy", "Orange Greening", "Peach Bacterial Spot", "Peach Healthy",
-    "Pepper Bacterial Spot", "Pepper Healthy", "Potato Early Blight",
-    "Potato Late Blight", "Potato Healthy", "Raspberry Healthy",
-    "Soybean Healthy", "Squash Powdery Mildew", "Strawberry Leaf Scorch",
-    "Strawberry Healthy", "Tomato Bacterial Spot", "Tomato Early Blight",
-    "Tomato Late Blight", "Tomato Leaf Mold", "Tomato Septoria",
-    "Tomato Spider Mites", "Tomato Target Spot", "Tomato Yellow Leaf Curl",
-    "Tomato Mosaic Virus", "Tomato Healthy",
+    "Pepper Bell Bacterial Spot", "Pepper Bell Healthy",
+    "Potato Early Blight", "Potato Late Blight", "Potato Healthy",
+    "Raspberry Healthy", "Soybean Healthy", "Squash Powdery Mildew",
+    "Strawberry Leaf Scorch", "Strawberry Healthy",
+    "Tomato Bacterial Spot", "Tomato Early Blight", "Tomato Late Blight",
+    "Tomato Leaf Mold", "Tomato Septoria Leaf Spot",
+    "Tomato Spider Mites", "Tomato Target Spot",
+    "Tomato Yellow Leaf Curl Virus", "Tomato Mosaic Virus",
+    "Tomato Healthy",
 ]
 
 CREDS = {"admin": "admin123", "researcher": "research2026", "demo": "demo123"}

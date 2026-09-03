@@ -21,7 +21,7 @@ from typing import Dict, List, Optional
 import torch
 import torch.nn.functional as F
 from fastapi import Body, FastAPI, File, HTTPException, Header, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -583,6 +583,83 @@ async def upload_checkpoint_model(
         "registry_version": version_id,
         "device": DEVICE,
     }
+
+
+@app.post("/models/{model_name}/export")
+async def export_model(
+    model_name: str,
+    opset: int = 14,
+    input_size: int = 224,
+):
+    """Export a loaded model to ONNX for on-device (Android/PWA) inference.
+
+    Uses the same export utilities as the training pipeline. The exported
+    file is written under ``./model_exports/`` and can be fetched via
+    ``GET /models/{model_name}/export``.
+    """
+    # Explicit unknown names must 404 — never silently export the active model
+    if model_name not in MODELS:
+        raise HTTPException(404, f"Model '{model_name}' not loaded")
+    model = MODELS[model_name]
+    from crop_ssl.utils.export import export_ssl_backbone, verify_onnx
+    from pathlib import Path as _P
+
+    export_dir = _P("model_exports")
+    export_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = model_name.replace("/", "_").replace("\\", "_")
+    out_path = export_dir / f"{safe_name}.onnx"
+
+    try:
+        export_ssl_backbone(
+            model, str(out_path),
+            backbone_type="teacher",
+            input_shape=(1, 3, input_size, input_size),
+        )
+    except Exception as e:
+        # Fall back to exporting the full model if backbone extraction fails
+        from crop_ssl.utils.export import export_to_onnx
+        try:
+            export_to_onnx(
+                model, str(out_path), input_shape=(1, 3, input_size, input_size),
+                opset_version=opset,
+            )
+        except Exception as e2:
+            raise HTTPException(500, f"Export failed: {e} | fallback: {e2}")
+
+    size_mb = round(out_path.stat().st_size / (1024 * 1024), 2)
+
+    # Verify with onnxruntime when available (best-effort, never fails the request)
+    verified = False
+    try:
+        verified = verify_onnx(str(out_path), model, input_shape=(1, 3, input_size, input_size))
+    except Exception:
+        verified = False
+
+    audit_log.log("model_exported", "system", {
+        "model": model_name, "path": str(out_path), "size_mb": size_mb,
+    })
+    return {
+        "status": "exported",
+        "model": model_name,
+        "path": str(out_path),
+        "size_mb": size_mb,
+        "input_shape": [1, 3, input_size, input_size],
+        "opset": opset,
+        "verified": verified,
+        "download_url": f"/models/{model_name}/export",
+    }
+
+
+@app.get("/models/{model_name}/export")
+async def download_export(model_name: str):
+    """Download the ONNX export of a model (for on-device deployment)."""
+    from pathlib import Path as _P
+    safe_name = model_name.replace("/", "_").replace("\\", "_")
+    path = _P("model_exports") / f"{safe_name}.onnx"
+    if not path.exists():
+        raise HTTPException(404, f"No export for '{model_name}'. POST /models/{model_name}/export first.")
+    return FileResponse(str(path), media_type="application/octet-stream",
+                       filename=f"{safe_name}.onnx")
 
 
 @app.delete("/models/{model_name}")

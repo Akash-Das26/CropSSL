@@ -57,3 +57,4 @@ android/local.properties
 android/.idea/
 *.apk
 *.aab
+model_exports/

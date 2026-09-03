@@ -63,6 +63,29 @@ android/
 └── gradle.properties
 ```
 
+## Offline inference with ONNX (advanced)
+
+For **offline** diagnosis (no backend / no network), export the trained model
+once from the server and run it on-device with
+[ONNX Runtime Mobile](https://onnxruntime.ai):
+
+1. Start the backend and export any loaded model:
+   ```bash
+   curl -X POST http://localhost:8000/models/simclr_vit_small/export \
+        -H 'Content-Type: application/json' -d '{"opset": 14, "input_size": 224}'
+   # → { "status": "exported", "path": "model_exports/simclr_vit_small.onnx",
+   #     "size_mb": 82.5, "download_url": "/models/simclr_vit_small/export", ... }
+   curl -o simclr_vit_small.onnx \
+        http://localhost:8000/models/simclr_vit_small/export
+   ```
+2. Add `com.microsoft.onnxruntime:onnxruntime-android` to `app/build.gradle`.
+3. Copy the `.onnx` into `app/src/main/assets/` and run it via
+   `OrtSession` — no PyTorch needed on the phone.
+
+The exported graph is the SSL **backbone** (outputs embeddings), so pair it
+with a small linear head trained on your class labels, or use the embeddings
+with a k-NN / nearest-centroid classifier.
+
 ## Going further
 
 - **Icon & name:** replace the launcher icon via Android Studio

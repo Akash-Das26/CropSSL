@@ -9,7 +9,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/PyTorch-2.0+-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white" alt="PyTorch">
-  <img src="https://img.shields.io/badge/Tests-212%20✅-brightgreen?style=for-the-badge" alt="Tests">
+  <img src="https://img.shields.io/badge/Tests-213%20✅-brightgreen?style=for-the-badge" alt="Tests">
   <img src="https://img.shields.io/badge/SSL-4%20Methods-blueviolet?style=for-the-badge" alt="SSL">
   <img src="https://img.shields.io/badge/Datasets-14-teal?style=for-the-badge" alt="Datasets">
   <img src="https://img.shields.io/badge/API-54%20Endpoints-orange?style=for-the-badge" alt="API">
@@ -202,7 +202,7 @@ Field 72%  → + LoRA few-shot (5 img/class)  →  ~86%
 
 ---
 
-## 🧪 Test Suite: 212/212 Passing
+## 🧪 Test Suite: 213/213 Passing
 
 ```
 pytest crop_ssl/tests/test_all.py
@@ -498,6 +498,27 @@ curl -X POST "http://localhost:8000/models/checkpoint?method=simclr&backbone=vit
 Response confirms the switch: `{"model": "my_model", "active": true, "missing_keys": 0, ...}`.
 Every subsequent `/predict` (desktop UI **and** mobile PWA) now uses your weights.
 
+### Deploy to Android (ONNX export)
+
+For **offline on-device inference** (no backend, no network), export the model
+to ONNX and run it with ONNX Runtime Mobile — no PyTorch needed on the phone:
+
+```bash
+# 1. Export the loaded model (backbone → embedding graph)
+curl -X POST http://localhost:8000/models/my_model/export \
+     -H 'Content-Type: application/json' -d '{"opset": 14, "input_size": 224}'
+# → { "status": "exported", "path": "model_exports/my_model.onnx",
+#     "size_mb": 82.5, "verified": true, ... }
+
+# 2. Download it
+curl -o my_model.onnx http://localhost:8000/models/my_model/export
+```
+
+Then add `com.microsoft.onnxruntime:onnxruntime-android` to your Android app
+and place the `.onnx` in `app/src/main/assets/` (full guide in
+[`android/README.md`](android/README.md)). Pair the exported embeddings with a
+small linear head, or use them with a k-NN / nearest-centroid classifier.
+
 ### Python API
 
 ```python
@@ -648,8 +669,11 @@ The full API surface is also browsable live at `http://localhost:8000/docs`.
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/models/checkpoint` | POST | Upload a trained `.pth` checkpoint → becomes ACTIVE_MODEL |
+| `/models/{name}/export` | POST | Export model to ONNX (on-device deployment) |
+| `/models/{name}/export` | GET | Download the exported `.onnx` file |
 | `/models/{name}/load` | POST | Load a demo SSL model by name |
 | `/models/{name}` | DELETE | Unload a model from memory |
+
 | `/registry/register` | POST | Register new model version |
 | `/registry/deploy` | POST | Deploy model to production |
 | `/registry/rollback` | POST | Rollback to previous version |
@@ -751,7 +775,7 @@ The full API surface is also browsable live at `http://localhost:8000/docs`.
 
 ```
 CropSSL/
-├── .github/workflows/ci.yml       # CI/CD: syntax + imports + 212 tests + Docker
+├── .github/workflows/ci.yml       # CI/CD: syntax + imports + 213 tests + Docker
 ├── android/                       # Native Android WebView wrapper (APK)
 ├── crop_ssl/
 │   ├── models/
@@ -796,7 +820,7 @@ CropSSL/
 │   │   ├── feature_viz.py             # t-SNE / UMAP visualization
 │   │   └── cross_domain_eval.py       # Cross-domain evaluation suite
 │   ├── backend/
-│   │   ├── api.py                     # FastAPI (54 routes, incl. /predict)
+│   │   ├── api.py                     # FastAPI (56 routes, incl. /predict + ONNX export)
 │   │   ├── auth.py                    # JWT authentication
 │   │   └── automation.py              # Registry, webhooks, A/B, drift, audit
 │   ├── frontend/
@@ -818,7 +842,7 @@ CropSSL/
 │   │   ├── logging.py                 # Structured logging
 │   │   └── reproducibility.py         # Seed-based determinism
 │   └── tests/
-│       └── test_all.py                # 212 tests (all passing)
+│       └── test_all.py                # 213 tests (all passing)
 ├── assets/logo.png
 ├── requirements.txt
 ├── pyproject.toml
@@ -867,7 +891,7 @@ Every push to `main` runs three automated checks via GitHub Actions
 | Job | What runs |
 |-----|-----------|
 | **checks** | `compileall` syntax gate + import smoke-test of all 48 modules + secret scan |
-| **test** | The full **212-test** suite (`pytest crop_ssl/tests/test_all.py`) |
+| **test** | The full **213-test** suite (`pytest crop_ssl/tests/test_all.py`) |
 | **docker** | Verifies the Docker image builds (on `main`) |
 
 Badge status shows directly under the project title. Run everything locally

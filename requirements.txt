@@ -12,3 +12,4 @@ httpx>=0.24.0   # required by starlette's TestClient (fallback until httpx2 ship
 streamlit>=1.28.0
 pandas>=2.0.0
 pytest>=7.4.0
+onnx>=1.15.0        # ONNX export for on-device (Android) deployment

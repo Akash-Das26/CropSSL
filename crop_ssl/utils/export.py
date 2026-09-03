@@ -52,6 +52,8 @@ def export_to_onnx(
     if output_names is None:
         output_names = ["output"]
 
+    # dynamo=False keeps the legacy (torchscript-based) exporter, which works
+    # without the optional `onnxscript` dependency on all torch 2.x versions.
     torch.onnx.export(
         model,
         dummy_input,
@@ -61,6 +63,7 @@ def export_to_onnx(
         input_names=input_names,
         output_names=output_names,
         do_constant_folding=True,
+        dynamo=False,
     )
 
     print(f"Model exported to {save_path}")
@@ -91,7 +94,7 @@ def verify_onnx(
         import onnxruntime as ort
     except ImportError:
         print("onnxruntime not installed. Skipping verification.")
-        return True
+        return False  # honest: we did NOT verify without onnxruntime
 
     model.eval()
     dummy_input = torch.randn(*input_shape)
