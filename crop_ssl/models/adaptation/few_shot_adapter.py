@@ -301,8 +301,15 @@ class FewShotAdapter(nn.Module):
         rank: int,
         dropout: float,
     ):
-        """LoRA fine-tuning — replaces attention layers in-place."""
-        # LoRAAdapter freezes backbone and replaces attn layers
+        """LoRA fine-tuning — replaces attention layers in-place.
+
+        LoRA injects new layers into the backbone it is given. To keep the
+        caller's backbone pristine (it may be reused for other methods), we
+        first deep-copy it, then let LoRA mutate only the private copy.
+        """
+        import copy as _copy
+        self.backbone = _copy.deepcopy(self.backbone)
+        # LoRAAdapter freezes backbone and replaces attn layers on the copy
         self.lora_adapter = LoRAAdapter(
             self.backbone,
             rank=rank,
@@ -321,6 +328,10 @@ class FewShotAdapter(nn.Module):
         dropout: float,
     ):
         """MAML-compatible setup (all params trainable)."""
+        # MAML fine-tunes the whole model, so explicitly unfreeze the backbone
+        # in case a previous adapter (e.g. linear) froze it on the shared object.
+        for p in self.backbone.parameters():
+            p.requires_grad = True
         self.classifier = nn.Sequential(
             nn.Linear(in_dim, hidden_dim),
             nn.ReLU(),

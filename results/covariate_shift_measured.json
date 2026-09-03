@@ -1,0 +1,141 @@
+{
+  "meta": {
+    "experiment": "controlled_covariate_shift",
+    "description": "Lab->field covariate shift (white-balance + gamma + noise + clutter) on 6-class structured synthetic data; SSL = MoCo v3 ViT-S pre-trained on unlabeled lab data; random_init = same arch, random weights. k = labeled FIELD shots per class.",
+    "environment": "CPU, 64x64 inputs, seeded (reproducible)",
+    "reproduce": "python3 -m crop_ssl.scripts.covariate_shift_exp --k-sweep --ssl-steps 200 --lr 3e-4",
+    "note": "FewShotAdapter deep-copies the backbone per method (LoRA is applied to a private copy), so rows are contamination-free."
+  },
+  "results": [
+    {
+      "tag": "ssl_pretrained",
+      "k_shots": 1,
+      "query_size": 794,
+      "naive": 0.8589420654911839,
+      "linear": 0.7342569231987,
+      "linear_params": 2310,
+      "lora": 0.6637279391288757,
+      "lora_params": 223494,
+      "prototypical": 0.74055415391922,
+      "prototypical_params": 0,
+      "oracle": 0.9748110831234257
+    },
+    {
+      "tag": "random_init",
+      "k_shots": 1,
+      "query_size": 794,
+      "naive": 0.5302267002518891,
+      "linear": 0.7153652310371399,
+      "linear_params": 2310,
+      "lora": 0.6221662759780884,
+      "lora_params": 223494,
+      "prototypical": 0.736775815486908,
+      "prototypical_params": 0,
+      "oracle": 0.9924433249370277
+    },
+    {
+      "tag": "ssl_pretrained",
+      "k_shots": 2,
+      "query_size": 788,
+      "naive": 0.8591370558375635,
+      "linear": 0.8908629417419434,
+      "linear_params": 2310,
+      "lora": 0.8324872851371765,
+      "lora_params": 223494,
+      "prototypical": 0.9086294174194336,
+      "prototypical_params": 0,
+      "oracle": 0.9746192893401016
+    },
+    {
+      "tag": "random_init",
+      "k_shots": 2,
+      "query_size": 788,
+      "naive": 0.5304568527918782,
+      "linear": 0.8908629417419434,
+      "linear_params": 2310,
+      "lora": 0.9200507402420044,
+      "lora_params": 223494,
+      "prototypical": 0.9149746298789978,
+      "prototypical_params": 0,
+      "oracle": 0.9923857868020305
+    },
+    {
+      "tag": "ssl_pretrained",
+      "k_shots": 5,
+      "query_size": 770,
+      "naive": 0.861038961038961,
+      "linear": 0.9441558718681335,
+      "linear_params": 2310,
+      "lora": 0.9311688542366028,
+      "lora_params": 223494,
+      "prototypical": 0.8779220581054688,
+      "prototypical_params": 0,
+      "oracle": 0.974025974025974
+    },
+    {
+      "tag": "random_init",
+      "k_shots": 5,
+      "query_size": 770,
+      "naive": 0.5298701298701298,
+      "linear": 0.9597402811050415,
+      "linear_params": 2310,
+      "lora": 0.9155844449996948,
+      "lora_params": 223494,
+      "prototypical": 0.8909090757369995,
+      "prototypical_params": 0,
+      "oracle": 0.9922077922077922
+    },
+    {
+      "tag": "ssl_pretrained",
+      "k_shots": 10,
+      "query_size": 740,
+      "naive": 0.8648648648648649,
+      "linear": 0.9513513445854187,
+      "linear_params": 2310,
+      "lora": 0.9324324131011963,
+      "lora_params": 223494,
+      "prototypical": 0.883783757686615,
+      "prototypical_params": 0,
+      "oracle": 0.972972972972973
+    },
+    {
+      "tag": "random_init",
+      "k_shots": 10,
+      "query_size": 740,
+      "naive": 0.5283783783783784,
+      "linear": 0.9486486315727234,
+      "linear_params": 2310,
+      "lora": 0.9662162065505981,
+      "lora_params": 223494,
+      "prototypical": 0.9108108282089233,
+      "prototypical_params": 0,
+      "oracle": 0.9932432432432432
+    },
+    {
+      "tag": "ssl_pretrained",
+      "k_shots": 20,
+      "query_size": 680,
+      "naive": 0.8705882352941177,
+      "linear": 0.9426470398902893,
+      "linear_params": 2310,
+      "lora": 0.9411764740943909,
+      "lora_params": 223494,
+      "prototypical": 0.895588219165802,
+      "prototypical_params": 0,
+      "oracle": 0.9735294117647059
+    },
+    {
+      "tag": "random_init",
+      "k_shots": 20,
+      "query_size": 680,
+      "naive": 0.5279411764705882,
+      "linear": 0.9602941274642944,
+      "linear_params": 2310,
+      "lora": 0.9073529243469238,
+      "lora_params": 223494,
+      "prototypical": 0.9058823585510254,
+      "prototypical_params": 0,
+      "oracle": 0.9926470588235294
+    }
+  ]
+}

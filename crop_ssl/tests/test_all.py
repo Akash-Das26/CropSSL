@@ -2857,6 +2857,35 @@ def test_throughput_benchmark():
     assert throughputs[4] >= throughputs[1] * 0.8, f"Throughput degradation at bs=4"
     print(f"    Throughput: bs1={throughputs[1]:.0f} img/s, bs4={throughputs[4]:.0f} img/s, bs8={throughputs[8]:.0f} img/s")
 
+def test_lora_does_not_mutate_shared_backbone():
+    """LoRA adapters must operate on a private copy of the backbone.
+
+    Regression: FewShotAdapter's LoRA path injected adapters into the
+    backbone IN-PLACE, so building a linear probe, then LoRA, then a
+    prototypical network from ONE backbone silently ran the later methods
+    on LoRA-contaminated weights.
+    """
+    from crop_ssl.models.adaptation.few_shot_adapter import FewShotAdapter
+    from crop_ssl.models.backbones.vit import vit_small_patch16
+
+    backbone = vit_small_patch16()
+    original = backbone.blocks[0].attn.qkv.weight.data.clone()
+
+    FewShotAdapter(backbone, 10, "linear")
+    assert torch.equal(backbone.blocks[0].attn.qkv.weight.data, original), \
+        "linear probe mutated the backbone weights"
+
+    FewShotAdapter(backbone, 10, "lora", rank=8)
+    assert torch.equal(backbone.blocks[0].attn.qkv.weight.data, original), \
+        "LoRA mutated the shared backbone — later adapters are contaminated"
+
+    proto = FewShotAdapter(backbone, 10, "prototypical")
+    assert torch.equal(backbone.blocks[0].attn.qkv.weight.data, original), \
+        "prototypical saw a LoRA-contaminated backbone"
+    assert proto.get_trainable_params() == 0
+    print("    LoRA isolation: backbone weights unchanged across methods ✓")
+
+
 def test_memory_efficiency():
     """Verify LoRA uses less memory than full fine-tuning."""
     import sys
@@ -3847,6 +3876,7 @@ if __name__ == "__main__":
     run_test("Inference latency", test_inference_latency_benchmark)
     run_test("Throughput benchmark", test_throughput_benchmark)
     run_test("Memory efficiency", test_memory_efficiency)
+    run_test("LoRA backbone isolation", test_lora_does_not_mutate_shared_backbone)
     run_test("Gradient accumulation correctness", test_gradient_accumulation_correctness)
     run_test("Serialization speed", test_model_serialization_speed)
     run_test("Feature extraction speed", test_feature_extraction_speed)
