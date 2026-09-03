@@ -8,6 +8,7 @@ matplotlib>=3.7.0
 fastapi>=0.100.0
 uvicorn>=0.23.0
 pydantic>=2.0.0
+httpx>=0.24.0   # required by starlette's TestClient (fallback until httpx2 ships)
 streamlit>=1.28.0
 pandas>=2.0.0
 pytest>=7.4.0
