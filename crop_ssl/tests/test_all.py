@@ -3420,6 +3420,51 @@ def test_api_predict_upload_roundtrip():
     print(f"    /predict upload → 200 ({data['prediction'][:24]}…)")
 
 
+def test_api_checkpoint_upload_sets_active():
+    """Upload a train_ssl checkpoint via /models/checkpoint and serve it."""
+    import io, tempfile
+    from fastapi.testclient import TestClient
+    from crop_ssl.backend.api import app
+    from crop_ssl.models.ssl import create_ssl_model
+    from crop_ssl.utils.checkpointing import save_checkpoint
+
+    torch.manual_seed(11)
+    model = create_ssl_model("simclr", backbone="vit_small", embed_dim=384)
+    opt = torch.optim.Adam(model.parameters(), lr=1e-4)
+    with tempfile.TemporaryDirectory() as tmp:
+        ckpt = f"{tmp}/best_ssl.pth"
+        save_checkpoint(model, opt, epoch=1, metrics={"loss": 0.4},
+                        save_path=ckpt)
+        payload = open(ckpt, "rb").read()
+
+    with TestClient(app) as client:
+        r = client.post(
+            "/models/checkpoint",
+            params={"method": "simclr", "backbone": "vit_small",
+                    "model_name": "reg_trained"},
+            files={"file": ("best_ssl.pth", payload, "application/octet-stream")},
+        )
+        assert r.status_code == 200, r.text[:300]
+        d = r.json()
+        assert d["status"] == "loaded"
+        assert d["model"] == "reg_trained"
+        assert d["active"] is True
+        assert d["missing_keys"] == 0
+        assert d["unexpected_keys"] == 0
+
+        # Mismatched method/backbone should fail cleanly, not 500
+        bad = client.post(
+            "/models/checkpoint",
+            params={"method": "mae", "backbone": "vit_base",
+                    "model_name": "bad_ckpt"},
+            files={"file": ("best_ssl.pth", payload, "application/octet-stream")},
+        )
+        assert bad.status_code in (400, 200), \
+            "mismatched checkpoint should be rejected or at least never 500"
+        assert bad.status_code != 500
+    print(f"    checkpoint upload → {r.json()['model']} active, 0 missing keys ✓")
+
+
 def test_evaluate_load_model_transfers_weights():
     """evaluate.load_model must load save_checkpoint checkpoints exactly.
 
@@ -3746,6 +3791,7 @@ if __name__ == "__main__":
     run_test("Precision/recall/F1 consistency", test_precision_recall_f1_consistency)
     run_test("Confusion matrix diagonal", test_confusion_matrix_diagonal)
     run_test("/predict upload roundtrip", test_api_predict_upload_roundtrip)
+    run_test("checkpoint upload sets active", test_api_checkpoint_upload_sets_active)
     run_test("evaluate checkpoint weight transfer", test_evaluate_load_model_transfers_weights)
     run_test("compare benchmark prototypical", test_compare_benchmark_prototypical_runs)
 

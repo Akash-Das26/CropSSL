@@ -93,6 +93,27 @@
     );
   }
 
+  function refreshModelList() {
+    fetch(API() + "/models")
+      .then((r) => r.json())
+      .then((list) => {
+        const sel = $("modelSelect");
+        if (!sel || !Array.isArray(list)) return;
+        const cur = sel.value;
+        sel.innerHTML =
+          '<option value="">(server active model)</option>' +
+          list
+            .map((m) => {
+              const arch = (m.architecture || "SSL").toUpperCase();
+              return '<option value="' + esc(m.name) + '">' +
+                esc(m.name) + " · " + arch + "</option>";
+            })
+            .join("");
+        if (cur) sel.value = cur;
+      })
+      .catch(() => {});
+  }
+
   async function analyze(file) {
     const img = $("preview");
     img.src = URL.createObjectURL(file);
@@ -103,7 +124,9 @@
     try {
       const fd = new FormData();
       fd.append("file", file, "leaf.jpg");
-      const r = await fetch(API() + "/predict", { method: "POST", body: fd });
+      const model = ($("modelSelect") || {}).value || "";
+      const q = model ? "?model_name=" + encodeURIComponent(model) : "";
+      const r = await fetch(API() + "/predict" + q, { method: "POST", body: fd });
       if (!r.ok) {
         const t = await r.text().catch(() => "");
         throw new Error("Server " + r.status + " " + t.slice(0, 140));
@@ -217,6 +240,10 @@
 
     $("tabScan").addEventListener("click", () => TABS.scan());
     $("tabStatus").addEventListener("click", () => TABS.status());
+
+    // load model list once API base is set
+    refreshModelList();
+    $("apiBase").addEventListener("change", refreshModelList);
 
     // service worker
     if ("serviceWorker" in navigator) {

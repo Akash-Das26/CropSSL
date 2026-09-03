@@ -9,10 +9,11 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/PyTorch-2.0+-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white" alt="PyTorch">
-  <img src="https://img.shields.io/badge/Tests-210%20✅-brightgreen?style=for-the-badge" alt="Tests">
+  <img src="https://img.shields.io/badge/Tests-211%20✅-brightgreen?style=for-the-badge" alt="Tests">
   <img src="https://img.shields.io/badge/SSL-4%20Methods-blueviolet?style=for-the-badge" alt="SSL">
   <img src="https://img.shields.io/badge/Datasets-14-teal?style=for-the-badge" alt="Datasets">
-  <img src="https://img.shields.io/badge/API-53%20Endpoints-orange?style=for-the-badge" alt="API">
+  <img src="https://img.shields.io/badge/API-54%20Endpoints-orange?style=for-the-badge" alt="API">
+  <img src="https://img.shields.io/badge/CI-GitHub%20Actions-brightgreen?style=for-the-badge&logo=githubactions&logoColor=white" alt="CI">
   <img src="https://img.shields.io/badge/Lines-18K+-gray?style=for-the-badge" alt="Lines">
   <img src="https://img.shields.io/badge/Files-66-blue?style=for-the-badge" alt="Files">
   <img src="https://img.shields.io/badge/Mobile-PWA%20Android-brightgreen?style=for-the-badge" alt="Mobile">
@@ -135,7 +136,7 @@ Source: PlantVillage (Lab, 54K images)  →  Target: Field datasets
 
 ---
 
-## 🧪 Test Suite: 210/210 Passing
+## 🧪 Test Suite: 211/211 Passing
 
 ```
 pytest crop_ssl/tests/test_all.py
@@ -324,6 +325,25 @@ python3 -m crop_ssl.scripts.download_data --synthetic
 python3 -m pytest crop_ssl/tests/test_all.py -v
 ```
 
+### Serve a Real Trained Model (not demo weights)
+
+The web UI and mobile app run on demo weights by default so everything works
+out of the box. To serve your **own trained checkpoint** (from `train_ssl` or
+`run_pipeline`), upload it to the running API — it becomes the active model
+that `/predict` and the mobile app use:
+
+```bash
+# Train first (saves ./outputs/ssl_<method>_<backbone>/best_ssl.pth)
+python3 -m crop_ssl.scripts.train_ssl --method simclr --backbone vit_small --epochs 10 --device cpu
+
+# Upload it to the running backend (port 8000)
+curl -X POST "http://localhost:8000/models/checkpoint?method=simclr&backbone=vit_small&model_name=my_model" \
+     -F "file=@outputs/ssl_simclr_vit_small/best_ssl.pth"
+```
+
+Response confirms the switch: `{"model": "my_model", "active": true, "missing_keys": 0, ...}`.
+Every subsequent `/predict` (desktop UI **and** mobile PWA) now uses your weights.
+
 ### Python API
 
 ```python
@@ -397,11 +417,22 @@ streamlit run crop_ssl/frontend/app.py
 | 📋 **Audit Log** | Full operation history with filtering |
 | 🎯 **Cross-Domain Analysis** | Source→target domain shift visualization |
 
-### 📱 Android & Mobile (PWA — served at `/app`)
+### 📱 Android & Mobile
 
-CropSSL ships an **Android-ready Progressive Web App** built into the same
-backend — no app store, no separate server. Point your phone at the API and
-you get a camera-first detection app that can be installed to the home screen.
+CropSSL ships two ways to run on Android:
+
+1. **PWA (no install needed)** — an Android-ready Progressive Web App built
+   into the backend at `/app`, installable to the home screen from Chrome.
+2. **Native APK** — a thin `android/` WebView wrapper that loads the same PWA
+   (camera + gallery picker wired up). Build it in Android Studio; no
+   external Gradle dependencies.
+
+```bash
+# Backend already running on your PC at port 8000.
+# On your Android phone (same Wi-Fi) open:
+#     http://<your-pc-lan-ip>:8000/app/
+# e.g. http://192.168.1.5:8000/app/
+```
 
 ```bash
 # Backend already running on your PC at port 8000.
@@ -414,6 +445,7 @@ you get a camera-first detection app that can be installed to the home screen.
 |---------|-------------|
 | 📷 **Take Photo / Choose Image** | Uses the phone camera (or gallery) |
 | 🧠 **Real Prediction** | POSTs the leaf to `/predict` and shows top-5 classes |
+| 🎛️ **Model picker** | Choose any loaded model (incl. your uploaded checkpoint) |
 | 📡 **Engine Status** | Live health, loaded models, device, uptime |
 | 🤖 **Automation Pulse** | Registry, drift & pipeline status at a glance |
 | ⚡ **Offline shell** | Service worker caches the UI for instant loading |
@@ -427,7 +459,7 @@ you get a camera-first detection app that can be installed to the home screen.
 > `/models`, `/system/automation-status`) so no credentials are needed on
 > the phone. For a field deployment, put the API behind your network/VPN.
 
-### Backend API (53 Routes)
+### Backend API (54 Routes)
 
 The full API surface is also browsable live at `http://localhost:8000/docs`.
 
@@ -457,10 +489,13 @@ The full API surface is also browsable live at `http://localhost:8000/docs`.
 </details>
 
 <details>
-<summary><strong>Model Registry (5)</strong></summary>
+<summary><strong>Model Management (7)</strong></summary>
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
+| `/models/checkpoint` | POST | Upload a trained `.pth` checkpoint → becomes ACTIVE_MODEL |
+| `/models/{name}/load` | POST | Load a demo SSL model by name |
+| `/models/{name}` | DELETE | Unload a model from memory |
 | `/registry/register` | POST | Register new model version |
 | `/registry/deploy` | POST | Deploy model to production |
 | `/registry/rollback` | POST | Rollback to previous version |
@@ -562,6 +597,8 @@ The full API surface is also browsable live at `http://localhost:8000/docs`.
 
 ```
 CropSSL/
+├── .github/workflows/ci.yml       # CI/CD: syntax + imports + 211 tests + Docker
+├── android/                       # Native Android WebView wrapper (APK)
 ├── crop_ssl/
 │   ├── models/
 │   │   ├── backbones/vit.py           # ViT-S/16, ViT-B/16, ViT-L/16
@@ -605,7 +642,7 @@ CropSSL/
 │   │   ├── feature_viz.py             # t-SNE / UMAP visualization
 │   │   └── cross_domain_eval.py       # Cross-domain evaluation suite
 │   ├── backend/
-│   │   ├── api.py                     # FastAPI (53 routes, incl. /predict)
+│   │   ├── api.py                     # FastAPI (54 routes, incl. /predict)
 │   │   ├── auth.py                    # JWT authentication
 │   │   └── automation.py              # Registry, webhooks, A/B, drift, audit
 │   ├── frontend/
@@ -627,7 +664,7 @@ CropSSL/
 │   │   ├── logging.py                 # Structured logging
 │   │   └── reproducibility.py         # Seed-based determinism
 │   └── tests/
-│       └── test_all.py                # 210 tests (all passing)
+│       └── test_all.py                # 211 tests (all passing)
 ├── assets/logo.png
 ├── requirements.txt
 ├── pyproject.toml
@@ -665,6 +702,26 @@ The backend includes a full automation engine for production ML workflows:
 | **DriftDetector** | PSI-based prediction distribution drift detection |
 | **AuditLogger** | Complete operation history with query and stats |
 | **PipelineOrchestrator** | 5-step ML pipeline: Data → SSL → Adapt → Eval → Deploy |
+
+---
+
+## 🤖 CI/CD Pipeline
+
+Every push to `main` runs three automated checks via GitHub Actions
+(`.github/workflows/ci.yml`):
+
+| Job | What runs |
+|-----|-----------|
+| **checks** | `compileall` syntax gate + import smoke-test of all 48 modules + secret scan |
+| **test** | The full **211-test** suite (`pytest crop_ssl/tests/test_all.py`) |
+| **docker** | Verifies the Docker image builds (on `main`) |
+
+Badge status shows directly under the project title. Run everything locally
+with:
+
+```bash
+python3 -m compileall -q crop_ssl && python3 -m pytest crop_ssl/tests/test_all.py -v
+```
 
 ---
 

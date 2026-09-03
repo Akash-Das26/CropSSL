@@ -158,9 +158,11 @@ main.view { position: relative; z-index: 1; padding: 16px; display: flex; flex-d
 
 .field { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
 .field span { font-size: .68rem; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; }
-.field input {
+.field input,
+.field select {
   background: rgba(255,255,255,.05); border: 1px solid var(--stroke); color: var(--text);
   border-radius: 12px; padding: 12px; font-family: var(--mono); font-size: .8rem; width: 100%;
+  -webkit-appearance: none; appearance: none;
 }
 .hint { font-size: .7rem; color: var(--muted); line-height: 1.5; }
 .hint code { color: var(--neon); font-family: var(--mono); }

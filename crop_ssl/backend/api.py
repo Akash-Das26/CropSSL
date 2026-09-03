@@ -474,6 +474,100 @@ async def load_model(model_name: str):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@app.post("/models/checkpoint")
+async def upload_checkpoint_model(
+    file: UploadFile = File(...),
+    method: str = "simclr",
+    backbone: str = "vit_small",
+    model_name: Optional[str] = None,
+):
+    """Upload a trained checkpoint (from train_ssl / run_pipeline) and serve it.
+
+    Accepts a ``.pth`` saved by :func:`crop_ssl.utils.checkpointing.save_checkpoint`
+    (or a raw state dict) plus the matching method/backbone. The checkpoint is
+    loaded into an SSL model, made the ACTIVE_MODEL, and registered in the
+    model registry — so ``/predict`` and the mobile app use real weights.
+    """
+    global ACTIVE_MODEL
+    contents = await file.read()
+    if len(contents) == 0:
+        raise HTTPException(400, "Empty file")
+    if len(contents) > 500 * 1024 * 1024:
+        raise HTTPException(400, "Checkpoint exceeds 500 MB")
+
+    embed_dims = {"vit_small": 384, "vit_base": 768, "vit_large": 1024}
+    if backbone not in embed_dims:
+        raise HTTPException(400, f"Unknown backbone: {backbone}")
+    if method not in ("dinov2", "moco_v3", "simclr", "mae"):
+        raise HTTPException(400, f"Unknown method: {method}")
+
+    import io as _io
+    try:
+        ckpt = torch.load(_io.BytesIO(contents), map_location="cpu")
+    except Exception as e:
+        raise HTTPException(400, f"Not a valid PyTorch checkpoint: {e}")
+
+    state_dict = ckpt.get("model_state_dict", ckpt)
+    if not isinstance(state_dict, dict):
+        raise HTTPException(400, "Checkpoint contains no model state dict")
+
+    from crop_ssl.models.ssl import create_ssl_model
+    model = create_ssl_model(method, backbone=backbone, embed_dim=embed_dims[backbone])
+    try:
+        loaded = model.load_state_dict(state_dict, strict=False)
+    except RuntimeError as e:
+        # Shape mismatch: checkpoint was trained with a different method/backbone
+        raise HTTPException(
+            400,
+            f"Checkpoint does not match {method}/{backbone} "
+            f"(shape mismatch). Detail: {str(e)[:200]}",
+        )
+    n_missing = len(loaded.missing_keys)
+    n_unexpected = len(loaded.unexpected_keys)
+    n_expected = sum(
+        1 for k in state_dict
+        if any(k.startswith(p) for p in ("encoder.", "student_backbone.",
+                                          "teacher_backbone.", "query_encoder.",
+                                          "decoder.", "projector.", "head."))
+    )
+    # Heuristic guard: if nothing recognizable was transferred, refuse silently
+    if n_expected == 0 and loaded.unexpected_keys and n_missing > 0 and not any(
+        k in state_dict for k in ("model_state_dict",)
+    ):
+        raise HTTPException(400, "Checkpoint keys do not match the requested method/backbone")
+
+    name = model_name or f"{method}_{backbone}_trained"
+    model.eval()
+    model.to(DEVICE)
+    MODELS[name] = model
+    ACTIVE_MODEL = name
+
+    params = sum(p.numel() for p in model.parameters())
+    try:
+        version_id = registry.register(name, model, metadata={
+            "source": "checkpoint-upload",
+            "method": method, "backbone": backbone,
+        })
+        audit_log.log("model_checkpoint_loaded", "system", {
+            "model": name, "version": version_id,
+        })
+    except Exception:
+        version_id = None
+
+    return {
+        "status": "loaded",
+        "model": name,
+        "method": method,
+        "backbone": backbone,
+        "parameters": params,
+        "active": True,
+        "missing_keys": n_missing,
+        "unexpected_keys": n_unexpected,
+        "registry_version": version_id,
+        "device": DEVICE,
+    }
+
+
 @app.delete("/models/{model_name}")
 async def unload_model(model_name: str):
     """Unload a model from memory."""
