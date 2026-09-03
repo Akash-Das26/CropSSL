@@ -20,7 +20,7 @@ from typing import Dict, List, Optional
 
 import torch
 import torch.nn.functional as F
-from fastapi import FastAPI, File, HTTPException, Header, UploadFile
+from fastapi import Body, FastAPI, File, HTTPException, Header, UploadFile
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -221,6 +221,23 @@ class RegisterRequest(BaseModel):
     username: str
     password: str
     display_name: str = ""
+
+
+class ABCreateRequest(BaseModel):
+    test_name: str
+    model_a: str
+    model_b: str
+    traffic_split: float = 0.5
+
+
+class PipelineCreateRequest(BaseModel):
+    name: str
+    ssl_method: str = "simclr"
+    backbone: str = "vit_small"
+    dataset: str = "plantvillage"
+    adaptation: str = "lora"
+    target_dataset: str = "plantdoc"
+    num_shots: int = 10
 
 
 # ============================================================
@@ -935,15 +952,12 @@ async def webhook_test(event: str = "test"):
 
 # --- A/B Testing ---
 @app.post("/ab/create")
-async def ab_create(
-    test_name: str,
-    model_a: str,
-    model_b: str,
-    traffic_split: float = 0.5,
-):
+async def ab_create(req: ABCreateRequest):
     """Create an A/B test."""
-    test_id = ab_tests.create_test(test_name, model_a, model_b, traffic_split)
-    audit_log.log("ab_test_created", "system", {"test": test_name, "id": test_id})
+    test_id = ab_tests.create_test(
+        req.test_name, req.model_a, req.model_b, req.traffic_split
+    )
+    audit_log.log("ab_test_created", "system", {"test": req.test_name, "id": test_id})
     return {"test_id": test_id}
 
 
@@ -987,8 +1001,8 @@ async def ab_list():
 
 # --- Drift Detection ---
 @app.post("/drift/set-reference")
-async def drift_set_reference(distribution: Dict[str, float]):
-    """Set the reference class distribution."""
+async def drift_set_reference(distribution: Dict[str, float] = Body(...)):
+    """Set the reference class distribution (JSON body)."""
     drift_detector.set_reference(distribution)
     return {"status": "set", "classes": len(distribution)}
 
@@ -1037,21 +1051,14 @@ async def pipeline_list():
 
 
 @app.post("/pipeline/create")
-async def pipeline_create(
-    name: str,
-    ssl_method: str = "simclr",
-    backbone: str = "vit_small",
-    dataset: str = "plantvillage",
-    adaptation: str = "lora",
-    target_dataset: str = "plantdoc",
-    num_shots: int = 10,
-):
+async def pipeline_create(req: PipelineCreateRequest):
     """Create a new ML pipeline."""
     pipe_id = orchestrator.create_pipeline(
-        name, ssl_method, backbone, dataset, adaptation, target_dataset, num_shots
+        req.name, req.ssl_method, req.backbone, req.dataset,
+        req.adaptation, req.target_dataset, req.num_shots,
     )
-    audit_log.log("pipeline_created", "system", {"pipeline": name, "id": pipe_id})
-    return {"pipe_id": pipe_id, "name": name}
+    audit_log.log("pipeline_created", "system", {"pipeline": req.name, "id": pipe_id})
+    return {"pipe_id": pipe_id, "name": req.name}
 
 
 @app.get("/pipeline/{pipe_id}")

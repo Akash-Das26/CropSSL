@@ -70,7 +70,7 @@ jobs:
           echo "No obvious secrets"
 
   test:
-    name: Full test suite (211 tests)
+    name: Full test suite (212 tests)
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -87,6 +87,7 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
           pip install -e .
+          pip install pytest
 
       - name: Run test suite
         run: python3 -m pytest crop_ssl/tests/test_all.py -q

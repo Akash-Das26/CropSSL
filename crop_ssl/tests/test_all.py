@@ -1398,7 +1398,8 @@ def test_simclr_temperature_effect():
     r_low = m_low(v1, v2)
     # Lower temp should generally produce different (often higher) loss
     assert r_high["loss"].item() >= 0 and r_low["loss"].item() >= 0
-    print(f"    Temp=0.5 loss={r_high['loss'].item():.4f}, Temp=0.01 loss={r_low["loss"].item():.4f}")
+    print(f"    Temp=0.5 loss={r_high['loss'].item():.4f}, "
+          f"Temp=0.01 loss={r_low['loss'].item():.4f}")
 
 
 def test_lora_rank_effect():
@@ -1579,7 +1580,7 @@ def test_feature_viz_extract_and_tsne():
     emb = compute_tsne(result["features"], n_components=2, perplexity=5)
     assert emb.shape[0] == 30 and emb.shape[1] == 2
     assert not np.any(np.isnan(emb)), "t-SNE produced NaN values"
-    print(f"    Feature viz pipeline: {result["features"].shape} -> t-SNE {emb.shape}")
+    print(f"    Feature viz pipeline: {result['features'].shape} -> t-SNE {emb.shape}")
 
 
 def test_vit_attention_map_shapes():
@@ -1706,7 +1707,8 @@ def test_model_summary_detailed():
     assert "Total parameters" in summary
     assert "Trainable" in summary
     assert params["total"] > params["trainable"] or params["trainable"] == params["total"]
-    print(f"    Model summary: {params["total"]:,} params, {params["trainable_pct"]:.1f}% trainable")
+    print(f"    Model summary: {params['total']:,} params, "
+          f"{params['trainable_pct']:.1f}% trainable")
 
 
 def test_cutmix_vs_mixup_diversity():
@@ -3420,6 +3422,37 @@ def test_api_predict_upload_roundtrip():
     print(f"    /predict upload → 200 ({data['prediction'][:24]}…)")
 
 
+def test_api_frontend_json_bodies_work():
+    """Automation Center endpoints must accept the JSON bodies the UI sends.
+
+    Regression: /ab/create, /pipeline/create and /drift/set-reference were
+    declared as bare params (query-only), so the Streamlit dashboard's JSON
+    POSTs silently 422'd and the UI showed "Backend not running".
+    """
+    from fastapi.testclient import TestClient
+    from crop_ssl.backend.api import app
+
+    with TestClient(app) as client:
+        r = client.post("/drift/set-reference", json={"Healthy": 0.9, "Blight": 0.1})
+        assert r.status_code == 200, r.text[:200]
+        assert r.json()["classes"] == 2
+
+        r = client.post("/ab/create", json={
+            "test_name": "a_vs_b", "model_a": "simclr_vit_small",
+            "model_b": "dinov2_vit_small", "traffic_split": 0.5,
+        })
+        assert r.status_code == 200, r.text[:200]
+        assert "test_id" in r.json()
+
+        r = client.post("/pipeline/create", json={
+            "name": "pipe_json", "ssl_method": "simclr", "backbone": "vit_small",
+            "dataset": "plantvillage", "target_dataset": "plantdoc", "num_shots": 5,
+        })
+        assert r.status_code == 200, r.text[:200]
+        assert r.json()["name"] == "pipe_json"
+    print("    drift-set / ab-create / pipeline-create JSON bodies → 200 ✓")
+
+
 def test_api_checkpoint_upload_sets_active():
     """Upload a train_ssl checkpoint via /models/checkpoint and serve it."""
     import io, tempfile
@@ -3792,6 +3825,7 @@ if __name__ == "__main__":
     run_test("Confusion matrix diagonal", test_confusion_matrix_diagonal)
     run_test("/predict upload roundtrip", test_api_predict_upload_roundtrip)
     run_test("checkpoint upload sets active", test_api_checkpoint_upload_sets_active)
+    run_test("frontend JSON bodies work", test_api_frontend_json_bodies_work)
     run_test("evaluate checkpoint weight transfer", test_evaluate_load_model_transfers_weights)
     run_test("compare benchmark prototypical", test_compare_benchmark_prototypical_runs)
 
