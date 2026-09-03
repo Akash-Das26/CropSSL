@@ -532,7 +532,7 @@ if not st.session_state.authed:
 # ============================================================
 # SIDEBAR — CONTROL CENTER
 # ============================================================
-user = st.session_state.user
+user = st.session_state.get("user") or {"username": "guest", "role": "viewer"}
 with st.sidebar:
     st.markdown(f"""
     <div style="text-align:center; padding:0.8rem 0;">

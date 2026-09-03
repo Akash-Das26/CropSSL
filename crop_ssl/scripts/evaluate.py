@@ -6,13 +6,15 @@ Evaluates SSL-pretrained models on source and target domains,
 measuring cross-domain robustness.
 
 Usage:
-    python -m crop_ssl.scripts.evaluate \\
-        --checkpoint ./outputs/ssl_dinov2_base/best_ssl.pth \\
+    python3 -m crop_ssl.scripts.train_ssl --method simclr --backbone vit_small --epochs 1
+    python3 -m crop_ssl.scripts.evaluate \\
+        --checkpoint ./outputs/ssl_simclr_vit_small/best_ssl.pth \\
+        --method simclr --backbone vit_small \\
         --source_dataset plantvillage \\
         --target_dataset plantdoc \\
         --data_root ./data \\
         --adaptation_method lora \\
-        --k_shot 5
+        --k_shot 5 --device cpu
 """
 
 import argparse
@@ -43,7 +45,11 @@ def load_model(
     device: str,
     k_shot: int = 5,
 ):
-    """Load pretrained SSL model and add adaptation head."""
+    """Load pretrained SSL model and add adaptation head.
+
+    Supports checkpoints saved by :func:`crop_ssl.utils.checkpointing.save_checkpoint`
+    (wrapped in a ``model_state_dict`` key) as well as raw state dicts.
+    """
     # Create model
     embed_dim = {
         "vit_small": 384, "vit_base": 768, "vit_large": 1024
@@ -55,22 +61,42 @@ def load_model(
         embed_dim=embed_dim,
     )
 
-    # Load checkpoint
+    # Load checkpoint (handles save_checkpoint wrapper format)
     ckpt = torch.load(checkpoint_path, map_location=device)
-    if "student_backbone" in ckpt:
-        model.student_backbone.load_state_dict(ckpt["student_backbone"])
-    elif "encoder" in ckpt:
-        model.encoder.load_state_dict(ckpt["encoder"])
-    elif "query_encoder" in ckpt:
-        model.query_encoder.load_state_dict(ckpt["query_encoder"])
-    else:
-        model.load_state_dict(ckpt, strict=False)
+    state_dict = ckpt.get("model_state_dict", ckpt)
+    if not isinstance(state_dict, dict) or not any(
+        k.endswith(("weight", "bias", "running_mean")) or "." in k
+        for k in (state_dict.keys() if isinstance(state_dict, dict) else [])
+    ):
+        raise ValueError(
+            f"Checkpoint {checkpoint_path} contains no model weights. "
+            f"Got keys: {list(ckpt.keys())[:8]}"
+        )
+
+    loaded = model.load_state_dict(state_dict, strict=False)
+    missing = loaded.missing_keys
+    unexpected = loaded.unexpected_keys
+    if missing:
+        print(f"  ⚠ {len(missing)} keys missing from checkpoint "
+              f"(e.g. {missing[:3]})")
+    if unexpected:
+        print(f"  ⚠ {len(unexpected)} unexpected keys in checkpoint "
+              f"(e.g. {unexpected[:3]})")
 
     model = model.to(device)
 
+    # Extract the backbone module that FewShotAdapter should wrap
+    backbone_module = None
+    for attr in ("student_backbone", "encoder", "query_encoder"):
+        if hasattr(model, attr):
+            backbone_module = getattr(model, attr)
+            break
+    if backbone_module is None:
+        backbone_module = model
+
     # Wrap with adaptation head
     adapter = FewShotAdapter(
-        backbone=model.student_backbone if hasattr(model, "student_backbone") else model.encoder,
+        backbone=backbone_module,
         num_classes=num_classes,
         adaptation_method=adaptation_method,
         rank=8,

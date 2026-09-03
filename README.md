@@ -9,12 +9,13 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/PyTorch-2.0+-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white" alt="PyTorch">
-  <img src="https://img.shields.io/badge/Tests-207%20✅-brightgreen?style=for-the-badge" alt="Tests">
+  <img src="https://img.shields.io/badge/Tests-210%20✅-brightgreen?style=for-the-badge" alt="Tests">
   <img src="https://img.shields.io/badge/SSL-4%20Methods-blueviolet?style=for-the-badge" alt="SSL">
   <img src="https://img.shields.io/badge/Datasets-14-teal?style=for-the-badge" alt="Datasets">
-  <img src="https://img.shields.io/badge/API-48%20Endpoints-orange?style=for-the-badge" alt="API">
+  <img src="https://img.shields.io/badge/API-53%20Endpoints-orange?style=for-the-badge" alt="API">
   <img src="https://img.shields.io/badge/Lines-18K+-gray?style=for-the-badge" alt="Lines">
   <img src="https://img.shields.io/badge/Files-66-blue?style=for-the-badge" alt="Files">
+  <img src="https://img.shields.io/badge/Mobile-PWA%20Android-brightgreen?style=for-the-badge" alt="Mobile">
 </p>
 
 <p align="center">
@@ -134,7 +135,7 @@ Source: PlantVillage (Lab, 54K images)  →  Target: Field datasets
 
 ---
 
-## 🧪 Test Suite: 207/207 Passing
+## 🧪 Test Suite: 210/210 Passing
 
 ```
 pytest crop_ssl/tests/test_all.py
@@ -293,29 +294,34 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
-### Run the Pipeline
+> 💡 All commands use `python3`. On most systems `python` is an alias that also works —
+> if you get `python: command not found`, just use `python3`.
+
+### Run the Pipeline (all verified end-to-end)
 
 ```bash
-# End-to-end: pre-train → adapt → evaluate
-python -m crop_ssl.scripts.run_pipeline --epochs 3 --device cpu
+# End-to-end: pre-train → adapt → evaluate (≈35 s on CPU)
+python3 -m crop_ssl.scripts.run_pipeline --epochs 1 --device cpu
 
-# SSL pre-training (any method)
-python -m crop_ssl.scripts.train_ssl --method dinov2 --backbone vit_base --epochs 100
+# SSL pre-training → saves ./outputs/ssl_<method>_<backbone>/best_ssl.pth
+python3 -m crop_ssl.scripts.train_ssl --method simclr --backbone vit_small --epochs 1 --device cpu
 
-# Cross-domain evaluation
-python -m crop_ssl.scripts.evaluate \
-    --checkpoint ./outputs/ssl_dinov2/best_ssl.pth \
-    --source_dataset plantvillage --target_dataset plantdoc \
-    --adaptation_method lora --k_shot 5
+# Cross-domain evaluation using the checkpoint from train_ssl
+python3 -m crop_ssl.scripts.evaluate \
+    --checkpoint ./outputs/ssl_simclr_vit_small/best_ssl.pth \
+    --method simclr --backbone vit_small \
+    --source_dataset rice_leaf --target_dataset coffee_leaf \
+    --adaptation_method linear --k_shot 5 --device cpu
 
-# Compare all 4 SSL methods
-python -m crop_ssl.scripts.compare_methods --quick
+# Compare all 4 SSL methods + adaptation strategies
+python3 -m crop_ssl.scripts.compare_methods --quick
 
-# Download all 14 datasets
-python -m crop_ssl.scripts.download_data --all
+# List available datasets (synthetic fallback requires no download)
+python3 -m crop_ssl.scripts.download_data --list
+python3 -m crop_ssl.scripts.download_data --synthetic
 
-# Run all 207 tests
-python -m pytest crop_ssl/tests/test_all.py -v
+# Run all tests
+python3 -m pytest crop_ssl/tests/test_all.py -v
 ```
 
 ### Python API
@@ -371,8 +377,8 @@ calibrated = ts.forward(model_logits)  # Scaled logits
 ### Start Both Services
 
 ```bash
-# Backend API (port 8000)
-python -m crop_ssl.backend.api
+# Backend API (port 8000) — serves REST API + /app mobile PWA
+python3 -m crop_ssl.backend.api
 
 # Frontend Dashboard (port 8501)
 streamlit run crop_ssl/frontend/app.py
@@ -382,7 +388,8 @@ streamlit run crop_ssl/frontend/app.py
 
 | Tab | What It Does |
 |-----|-------------|
-| 🔍 **Disease Detection** | Upload leaf photo → prediction with GradCAM heatmap |
+| 🔍 **Disease Detection** | Upload leaf photo → prediction + GradCAM heatmap |
+| 📱 **Android PWA** | Camera-first mobile UI at `http://<host>:8000/app/` |
 | 📊 **Model Comparison** | Side-by-side SSL method benchmarking |
 | 🤖 **Automation Center** | Auto-retrain, drift detection, A/B testing, webhooks |
 | 📦 **Model Registry** | Version control, deploy, rollback |
@@ -390,7 +397,39 @@ streamlit run crop_ssl/frontend/app.py
 | 📋 **Audit Log** | Full operation history with filtering |
 | 🎯 **Cross-Domain Analysis** | Source→target domain shift visualization |
 
-### Backend API (48 Endpoints)
+### 📱 Android & Mobile (PWA — served at `/app`)
+
+CropSSL ships an **Android-ready Progressive Web App** built into the same
+backend — no app store, no separate server. Point your phone at the API and
+you get a camera-first detection app that can be installed to the home screen.
+
+```bash
+# Backend already running on your PC at port 8000.
+# On your Android phone (same Wi-Fi) open:
+#     http://<your-pc-lan-ip>:8000/app/
+# e.g. http://192.168.1.5:8000/app/
+```
+
+| Feature | What It Does |
+|---------|-------------|
+| 📷 **Take Photo / Choose Image** | Uses the phone camera (or gallery) |
+| 🧠 **Real Prediction** | POSTs the leaf to `/predict` and shows top-5 classes |
+| 📡 **Engine Status** | Live health, loaded models, device, uptime |
+| 🤖 **Automation Pulse** | Registry, drift & pipeline status at a glance |
+| ⚡ **Offline shell** | Service worker caches the UI for instant loading |
+| 🏠 **Installable** | `manifest.webmanifest` → *Add to Home Screen* → full-screen app |
+
+> **To install:** open the URL in Chrome → menu → *Add to Home screen*.
+> The app runs standalone with the CropSSL icon (the app icon is generated
+> from `assets/logo.png` into `crop_ssl/frontend/mobile/icons/`).
+>
+> The mobile UI talks only to the public API routes (`/predict`, `/health`,
+> `/models`, `/system/automation-status`) so no credentials are needed on
+> the phone. For a field deployment, put the API behind your network/VPN.
+
+### Backend API (53 Routes)
+
+The full API surface is also browsable live at `http://localhost:8000/docs`.
 
 <details>
 <summary><strong>Core Endpoints (7)</strong></summary>
@@ -442,7 +481,7 @@ streamlit run crop_ssl/frontend/app.py
 </details>
 
 <details>
-<summary><strong>Webhooks (4)</strong></summary>
+<summary><strong>Webhooks (5)</strong></summary>
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -455,7 +494,7 @@ streamlit run crop_ssl/frontend/app.py
 </details>
 
 <details>
-<summary><strong>A/B Testing (5)</strong></summary>
+<summary><strong>A/B Testing (6)</strong></summary>
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -566,11 +605,12 @@ CropSSL/
 │   │   ├── feature_viz.py             # t-SNE / UMAP visualization
 │   │   └── cross_domain_eval.py       # Cross-domain evaluation suite
 │   ├── backend/
-│   │   ├── api.py                     # FastAPI (48 endpoints)
+│   │   ├── api.py                     # FastAPI (53 routes, incl. /predict)
 │   │   ├── auth.py                    # JWT authentication
 │   │   └── automation.py              # Registry, webhooks, A/B, drift, audit
 │   ├── frontend/
-│   │   └── app.py                     # Streamlit dashboard (1590 lines)
+│   │   ├── app.py                     # Streamlit research dashboard
+│   │   └── mobile/                    # Android-ready PWA (served at /app)
 │   ├── configs/
 │   │   └── default.py                 # Experiment configurations
 │   ├── scripts/
@@ -587,7 +627,7 @@ CropSSL/
 │   │   ├── logging.py                 # Structured logging
 │   │   └── reproducibility.py         # Seed-based determinism
 │   └── tests/
-│       └── test_all.py                # 207 tests (all passing)
+│       └── test_all.py                # 210 tests (all passing)
 ├── assets/logo.png
 ├── requirements.txt
 ├── pyproject.toml

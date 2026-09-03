@@ -80,12 +80,19 @@ def benchmark_ssl_method(
     for epoch in range(epochs):
         epoch_loss = 0.0
         n_batches = 0
+        epoch_start = time.time()
 
-        for images, _ in dataloader:
+        for batch_idx, (images, _) in enumerate(dataloader):
             images = images.to(device)
 
             if method == "dinov2":
-                crops = [images] + [torch.randn_like(images) for _ in range(9)]
+                # DINOv2 semantics: 1 global crop (224) + local crops (96).
+                # Cap the batch for multi-crop so CPU benchmarking stays tractable.
+                multi_crop_batch = images[:8]
+                crops = [multi_crop_batch] + [
+                    torch.randn(multi_crop_batch.shape[0], 3, 96, 96, device=device)
+                    for _ in range(9)
+                ]
                 result = model(crops)
             elif method in ("simclr", "moco_v3"):
                 result = model(images, torch.randn_like(images))
@@ -101,6 +108,12 @@ def benchmark_ssl_method(
 
             epoch_loss += loss.item()
             n_batches += 1
+
+            print(
+                f"    epoch {epoch + 1}/{epochs} batch {batch_idx + 1}/{len(dataloader)} "
+                f"loss={loss.item():.4f} ({time.time() - epoch_start:.1f}s)",
+                flush=True,
+            )
 
         losses.append(epoch_loss / max(n_batches, 1))
 
@@ -133,7 +146,7 @@ def benchmark_adaptation(
     model = create_ssl_model(ssl_method, backbone=backbone, embed_dim=embed_dim)
     model = model.to(device)
 
-    # Quick pre-train
+    # Quick pre-train (single step)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     model.train()
     for images, _ in source_loader:
@@ -143,7 +156,11 @@ def benchmark_adaptation(
         elif ssl_method == "mae":
             result = model(images)
         else:
-            crops = [images] + [torch.randn_like(images) for _ in range(9)]
+            multi_crop_batch = images[:8]
+            crops = [multi_crop_batch] + [
+                torch.randn(multi_crop_batch.shape[0], 3, 96, 96, device=device)
+                for _ in range(9)
+            ]
             result = model(crops)
         optimizer.zero_grad()
         result["loss"].backward()
@@ -172,10 +189,21 @@ def benchmark_adaptation(
         filter(lambda p: p.requires_grad, adapter.parameters()), lr=1e-3
     )
 
+    # Prototypical networks need labeled support examples to form class prototypes
+    if adaptation == "prototypical":
+        support_images = torch.randn(num_classes * 4, 3, 224, 224).to(device)
+        support_labels = torch.arange(num_classes).repeat(4).to(device)
+
     adapter.train()
     for images, labels in source_loader:
         images, labels = images.to(device), labels.to(device)
-        result = adapter(images)
+        if adaptation == "prototypical":
+            result = adapter(
+                images, support_images=support_images,
+                support_labels=support_labels, n_way=num_classes,
+            )
+        else:
+            result = adapter(images)
         loss = criterion(result["logits"], labels)
         opt.zero_grad()
         loss.backward()
@@ -187,7 +215,13 @@ def benchmark_adaptation(
     with torch.no_grad():
         for images, labels in target_loader:
             images, labels = images.to(device), labels.to(device)
-            result = adapter(images)
+            if adaptation == "prototypical":
+                result = adapter(
+                    images, support_images=support_images,
+                    support_labels=support_labels, n_way=num_classes,
+                )
+            else:
+                result = adapter(images)
             eval_suite.update(result["logits"], labels)
 
     metrics = eval_suite.compute()
@@ -214,7 +248,7 @@ def run_benchmark(
 
     embed_dim = BACKBONES[backbone]
     num_classes = 5
-    epochs = 3 if quick else 10
+    epochs = 2 if quick else 10
 
     print("=" * 60)
     print("CropSSL Benchmark Suite")

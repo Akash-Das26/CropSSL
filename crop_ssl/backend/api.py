@@ -383,6 +383,7 @@ async def predict(
     model_name: Optional[str] = None,
 ):
     """Predict disease from uploaded leaf image."""
+    global ACTIVE_MODEL
     contents = await file.read()
     tensor = _preprocess_image(contents)
     tensor = tensor.to(DEVICE)
@@ -476,6 +477,7 @@ async def load_model(model_name: str):
 @app.delete("/models/{model_name}")
 async def unload_model(model_name: str):
     """Unload a model from memory."""
+    global ACTIVE_MODEL
     if model_name in MODELS:
         del MODELS[model_name]
         if ACTIVE_MODEL == model_name:
@@ -717,6 +719,7 @@ async def registry_register(
     user: str = "system",
 ):
     """Register the active model in the registry."""
+    global ACTIVE_MODEL
     try:
         model = _get_model()
     except HTTPException:
@@ -1011,6 +1014,27 @@ async def global_exception_handler(request, exc):
             "detail": traceback.format_exc() if not isinstance(exc, HTTPException) else None,
         },
     )
+
+
+# ============================================================
+# Mobile PWA (Android-ready) — served from /app
+# ============================================================
+from pathlib import Path
+from fastapi.staticfiles import StaticFiles
+
+_MOBILE_DIR = Path(__file__).resolve().parent.parent / "frontend" / "mobile"
+if _MOBILE_DIR.exists():
+    app.mount(
+        "/app",
+        StaticFiles(directory=str(_MOBILE_DIR), html=True),
+        name="mobile_app",
+    )
+
+
+@app.get("/health/mobile", include_in_schema=False)
+async def mobile_health():
+    """Mobile PWA availability probe."""
+    return {"app": "mobile", "available": _MOBILE_DIR.exists()}
 
 
 # ============================================================

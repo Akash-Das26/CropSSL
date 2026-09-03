@@ -2801,27 +2801,28 @@ def test_inference_latency_benchmark():
     for method in ["simclr", "dinov2", "mae"]:
         model = create_ssl_model(method, backbone="vit_small", embed_dim=384)
         model.eval()
-        # Warmup
-        with torch.no_grad():
-            for _ in range(3):
-                if method == "mae":
-                    model(x)
-                elif method in ("simclr",):
-                    model(x, x)
-                else:
-                    model([x] + [x]*9)
-        # Benchmark
-        times = []
-        with torch.no_grad():
-            for _ in range(10):
-                start = time.time()
-                if method == "mae":
-                    model(x)
-                elif method in ("simclr",):
-                    model(x, x)
-                else:
-                    model([x] + [x]*9)
-                times.append((time.time() - start) * 1000)
+    # Warmup
+    with torch.no_grad():
+        for _ in range(3):
+            if method == "mae":
+                model(x)
+            elif method in ("simclr",):
+                model(x, x)
+            else:
+                # Real DINOv2 multi-crop: 1 global (224) + local crops (96)
+                model([x] + [torch.randn(1, 3, 96, 96)] * 9)
+    # Benchmark
+    times = []
+    with torch.no_grad():
+        for _ in range(10):
+            start = time.time()
+            if method == "mae":
+                model(x)
+            elif method in ("simclr",):
+                model(x, x)
+            else:
+                model([x] + [torch.randn(1, 3, 96, 96)] * 9)
+            times.append((time.time() - start) * 1000)
         avg_ms = sum(times) / len(times)
         results[method] = avg_ms
         assert avg_ms < 1000, f"{method} too slow: {avg_ms:.1f}ms"
@@ -3382,6 +3383,114 @@ def test_confusion_matrix_diagonal():
     print(f"    Confusion matrix: diagonal={diag}, off-diagonal={off_diag} ✓")
 
 
+def test_api_predict_upload_roundtrip():
+    """POST a real image to /predict and assert a valid prediction.
+
+    Regression test: /predict previously raised UnboundLocalError on
+    ACTIVE_MODEL (missing global declaration) for every image upload.
+    """
+    from io import BytesIO
+    import numpy as np
+    from PIL import Image
+
+    # Build a tiny PNG payload
+    arr = (np.random.rand(256, 256, 3) * 255).astype(np.uint8)
+    buf = BytesIO()
+    Image.fromarray(arr).save(buf, format="PNG")
+    payload = buf.getvalue()
+
+    # Use FastAPI TestClient (no network, no real model weights needed)
+    try:
+        from fastapi.testclient import TestClient
+    except Exception:
+        from starlette.testclient import TestClient
+    from crop_ssl.backend.api import app
+
+    with TestClient(app) as client:
+        resp = client.post(
+            "/predict",
+            files={"file": ("leaf.png", payload, "image/png")},
+        )
+        assert resp.status_code == 200, f"predict failed: {resp.status_code} {resp.text[:300]}"
+        data = resp.json()
+        assert "prediction" in data
+        assert "confidence" in data
+        assert "model_used" in data and data["model_used"]
+        assert 0.0 <= data["confidence"] <= 100.0
+    print(f"    /predict upload → 200 ({data['prediction'][:24]}…)")
+
+
+def test_evaluate_load_model_transfers_weights():
+    """evaluate.load_model must load save_checkpoint checkpoints exactly.
+
+    Regression test: previously it looked for keys (student_backbone,
+    encoder, ...) that save_checkpoint never writes, so the documented
+    train → evaluate flow silently loaded random weights.
+    """
+    import tempfile
+    from crop_ssl.models.ssl import create_ssl_model
+    from crop_ssl.utils.checkpointing import save_checkpoint
+    from crop_ssl.scripts.evaluate import load_model
+
+    torch.manual_seed(7)
+    model = create_ssl_model("simclr", backbone="vit_small", embed_dim=384)
+    opt = torch.optim.Adam(model.parameters(), lr=1e-4)
+    x = torch.randn(2, 3, 224, 224)
+    out = model(x, torch.randn_like(x))
+    out["loss"].backward()
+    opt.step()
+    expected = model.encoder.forward_features(x).detach()
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ckpt = f"{tmp}/best_ssl.pth"
+        save_checkpoint(model, opt, epoch=1, metrics={"loss": 0.5},
+                        save_path=ckpt)
+        adapter, loaded = load_model(
+            ckpt, method="simclr", backbone="vit_small",
+            num_classes=10, adaptation_method="linear", device="cpu",
+        )
+    loaded.eval()
+    with torch.no_grad():
+        actual = loaded.encoder.forward_features(x)
+    assert torch.allclose(expected, actual, atol=1e-6), \
+        "checkpoint weights were not transferred exactly"
+    logits = adapter(x)["logits"]
+    assert tuple(logits.shape) == (2, 10)
+    print(f"    evaluate.load_model weight transfer: exact ✓")
+
+
+def test_compare_benchmark_prototypical_runs():
+    """compare_methods benchmark_adaptation must handle prototypical.
+
+    Regression test: --quick crashed with ValueError because prototypical
+    adapters need support_images/support_labels which the benchmark never
+    supplied.
+    """
+    from torch.utils.data import DataLoader, TensorDataset
+    from crop_ssl.scripts.compare_methods import benchmark_adaptation
+
+    torch.manual_seed(3)
+    # EvaluationSuite computes top-5 accuracy, so need >= 5 classes
+    num_classes = 5
+    src = DataLoader(TensorDataset(
+        torch.randn(12, 3, 224, 224),
+        torch.randint(0, num_classes, (12,)),
+    ), batch_size=6, shuffle=True)
+    tgt = DataLoader(TensorDataset(
+        torch.randn(8, 3, 224, 224),
+        torch.randint(0, num_classes, (8,)),
+    ), batch_size=4)
+
+    result = benchmark_adaptation(
+        ssl_method="simclr", backbone="vit_small", embed_dim=384,
+        adaptation="prototypical", source_loader=src,
+        target_loader=tgt, num_classes=num_classes, device="cpu",
+    )
+    assert 0.0 <= result["target_acc"] <= 100.0
+    assert "ece" in result
+    print(f"    prototypical benchmark: acc={result['target_acc']:.1f}% ✓")
+
+
 # ============================================================
 # MAIN
 # ============================================================
@@ -3636,6 +3745,9 @@ if __name__ == "__main__":
     run_test("Ensemble weight norm", test_ensemble_weight_normalization)
     run_test("Precision/recall/F1 consistency", test_precision_recall_f1_consistency)
     run_test("Confusion matrix diagonal", test_confusion_matrix_diagonal)
+    run_test("/predict upload roundtrip", test_api_predict_upload_roundtrip)
+    run_test("evaluate checkpoint weight transfer", test_evaluate_load_model_transfers_weights)
+    run_test("compare benchmark prototypical", test_compare_benchmark_prototypical_runs)
 
     print("\n" + "=" * 60)
     print(f"Results: {PASS} passed, {FAIL} failed out of {PASS + FAIL} tests")

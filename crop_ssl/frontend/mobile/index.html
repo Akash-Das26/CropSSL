@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+  <meta name="theme-color" content="#060611" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="manifest" href="/app/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/app/icons/icon-192.png" />
+  <link rel="icon" href="/app/icons/icon-192.png" />
+  <title>CropSSL · AI Crop Disease Detection</title>
+  <link rel="stylesheet" href="/app/styles.css" />
+</head>
+<body>
+  <div class="stars" aria-hidden="true"></div>
+
+  <header class="topbar">
+    <img class="logo" src="/app/icons/icon-192.png" alt="CropSSL" />
+    <div class="brand">
+      <h1>Crop<span>SSL</span></h1>
+      <p>AI Crop Disease Detection</p>
+    </div>
+    <div class="conn" id="conn"><span class="dot"></span><em id="connTxt">CONNECTING</em></div>
+  </header>
+
+  <!-- Landing / model view -->
+  <main id="landing" class="view">
+    <section class="card hero">
+      <h2>Snap a leaf.<br />Know the disease.</h2>
+      <p class="muted">
+        Photograph an infected leaf in the field — the self-supervised
+        vision model diagnoses it in seconds.
+      </p>
+      <div class="hero-actions">
+        <button class="btn primary" id="openCam">📷 Take Photo</button>
+        <button class="btn ghost" id="openGallery">🗂️ Choose Image</button>
+      </div>
+      <input type="file" id="fileInput" accept="image/*" capture="environment" hidden />
+    </section>
+
+    <!-- Detection results -->
+    <section id="analyzing" class="card hidden">
+      <div class="spinner"></div>
+      <p class="analyze-txt">Analyzing leaf…</p>
+    </section>
+
+    <section id="resultCard" class="card result hidden">
+      <div class="imgwrap">
+        <img id="preview" alt="Leaf preview" />
+        <div class="img-tag" id="imgTag">LIVE IMAGE</div>
+      </div>
+      <div class="diag-row">
+        <div class="ring" id="ring" style="--p: 0">
+          <div class="ring-inner"><strong id="confPct">--%</strong><span>confidence</span></div>
+        </div>
+        <div class="diag-text">
+          <h3 id="topLabel">—</h3>
+          <p id="subLabel">Waiting for diagnosis</p>
+        </div>
+      </div>
+      <div class="bars" id="bars"></div>
+      <div class="meta-row">
+        <span class="chip" id="chipModel">model</span>
+        <span class="chip" id="chipTime">0 ms</span>
+      </div>
+      <button class="btn ghost full" id="reanalyze">🔄 New Scan</button>
+    </section>
+  </main>
+
+  <!-- Settings / status -->
+  <main id="status" class="view hidden">
+    <section class="card">
+      <h2 class="mini-head">⚙️ Engine Status</h2>
+      <ul class="kv" id="healthList"></ul>
+    </section>
+
+    <section class="card">
+      <h2 class="mini-head">🤖 Automation Pulse</h2>
+      <ul class="kv" id="autoList"></ul>
+    </section>
+
+    <section class="card">
+      <h2 class="mini-head">🧠 Loaded Models</h2>
+      <ul class="kv" id="modelList"></ul>
+    </section>
+
+    <section class="card">
+      <h2 class="mini-head">📡 Connection</h2>
+      <label class="field">
+        <span>API Base URL</span>
+        <input id="apiBase" type="url" spellcheck="false" />
+      </label>
+      <p class="hint">
+        Running on a PC? Open this page on your phone and point the URL at
+        your computer's LAN IP, e.g. <code>http://192.168.1.5:8000</code>
+      </p>
+    </section>
+  </main>
+
+  <nav class="tabbar">
+    <button class="tab active" id="tabScan"><span>🔍</span>Scan</button>
+    <button class="tab" id="tabStatus"><span>📡</span>Engine</button>
+  </nav>
+
+  <script src="/app/app.js"></script>
+</body>
+</html>
