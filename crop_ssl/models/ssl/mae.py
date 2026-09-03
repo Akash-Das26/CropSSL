@@ -16,7 +16,6 @@ from typing import Dict, Tuple
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 from crop_ssl.models.backbones.vit import (
     vit_small_patch16,

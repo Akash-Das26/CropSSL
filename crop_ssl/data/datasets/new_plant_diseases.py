@@ -56,7 +56,7 @@ class NewPlantDiseasesDataset(Dataset):
             self.data_dir = self.root / "plant-disease"
 
         if not self.data_dir.exists():
-            print(f"Dataset not found. Creating synthetic NewPlantDiseases...")
+            print("Dataset not found. Creating synthetic NewPlantDiseases...")
             self._create_synthetic()
 
         self.classes = sorted(

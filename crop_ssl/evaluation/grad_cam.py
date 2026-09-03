@@ -200,7 +200,6 @@ class GradCAM:
             alpha: Overlay transparency.
         """
         import matplotlib.pyplot as plt
-        import numpy as np
 
         if input_tensor.dim() == 3:
             input_tensor = input_tensor.unsqueeze(0)

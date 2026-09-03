@@ -98,7 +98,6 @@ class TestTimeAugmentation:
             Optionally 'std' for uncertainty estimation.
         """
         from PIL import Image as PILImage
-        import numpy as np
 
         # Convert tensor to PIL if needed
         if isinstance(image, torch.Tensor):

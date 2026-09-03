@@ -34,7 +34,6 @@ Usage:
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -241,7 +240,7 @@ def main():
     rnd = create_ssl_model("moco_v3", backbone="vit_small",
                            embed_dim=384).query_encoder.eval()
 
-    print(f"\nBackbone A: SSL pre-trained | Backbone B: random init (same arch)")
+    print("\nBackbone A: SSL pre-trained | Backbone B: random init (same arch)")
     if args.k_sweep:
         rows = []
         for k in [1, 2, 5, 10, 20]:

@@ -36,7 +36,7 @@ from crop_ssl.evaluation.metrics import (
 from crop_ssl.utils.reproducibility import set_seed
 from crop_ssl.utils.checkpointing import save_checkpoint
 from crop_ssl.utils.training import CosineWarmupScheduler
-from crop_ssl.utils.export import model_summary, count_parameters
+from crop_ssl.utils.export import count_parameters
 from crop_ssl.utils.logging import ExperimentLogger, Timer
 
 
@@ -379,9 +379,9 @@ def generate_report(all_results: Dict[str, Any], output_path: str):
         json.dump(report, f, indent=2, default=str)
 
     print(f"\n  Results saved to: {output_path}")
-    print(f"\n  Summary:")
+    print("\n  Summary:")
     if "ssl_pretraining" in all_results:
-        print(f"    SSL pre-training: ✅")
+        print("    SSL pre-training: ✅")
     if "few_shot" in all_results:
         methods = list(all_results["few_shot"].keys())
         print(f"    Few-shot methods: {', '.join(methods)}")
@@ -392,7 +392,7 @@ def generate_report(all_results: Dict[str, Any], output_path: str):
         acc = all_results["evaluation"].get("accuracy", {})
         print(f"    Top-1 accuracy: {acc.get('top_1_acc', 'N/A')}%")
     if "advanced" in all_results:
-        print(f"    Advanced features: ✅")
+        print("    Advanced features: ✅")
 
     print("\n" + "=" * 60)
 
@@ -511,8 +511,7 @@ def main():
     total_time = timer.stop("total")
     all_results["total_time_seconds"] = total_time
 
-    # Model summary
-    summary = model_summary(ssl_model)
+    # Model summary (parameter counts only — avoids a redundant FLOPs pass)
     params = count_parameters(ssl_model)
     all_results["model_summary"] = {
         "total_params": params["total"],

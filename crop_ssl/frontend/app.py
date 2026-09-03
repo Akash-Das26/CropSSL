@@ -624,7 +624,7 @@ with header_cols[1]:
     st.markdown('<div class="sub-text">Cross-Domain Robustness · Self-Supervised Vision · Few-Shot Adaptation · Automation</div>', unsafe_allow_html=True)
 with header_cols[2]:
     if st.session_state.model:
-        st.markdown(f"""
+        st.markdown("""
         <div style="text-align:right; padding-top:1rem;">
             <span class="status-dot"></span>
             <span style="font-size:0.7rem; color:var(--neon); font-weight:600; margin-left:0.3rem;">MODEL LOADED</span>
@@ -724,7 +724,6 @@ with tab1:
             st.markdown('<div class="section-header">🔬 Attention Heatmap (GradCAM)</div>', unsafe_allow_html=True)
             try:
                 heatmap = compute_gradcam(st.session_state.model, img)
-                import numpy as np
                 import matplotlib.pyplot as plt
                 fig, axes = plt.subplots(1, 2, figsize=(8, 3), facecolor='none')
                 axes[0].imshow(img.resize((224, 224)))
@@ -1156,8 +1155,8 @@ with tab6:
                     with urllib.request.urlopen(req, timeout=5) as resp:
                         result = json.loads(resp.read())
                         st.success(f"✅ Registered: {result['version_id']}")
-                except Exception as e:
-                    st.info(f"Backend not running. Registry stores locally.")
+                except Exception:
+                    st.info("Backend not running. Registry stores locally.")
             else:
                 st.warning("Load a model first")
 
@@ -1198,7 +1197,7 @@ with tab6:
             with urllib.request.urlopen(req, timeout=5) as resp:
                 result = json.loads(resp.read())
                 st.success(f"✅ Rolled back to {result['version']}")
-        except Exception as e:
+        except Exception:
             st.info("Backend not running")
 
 
