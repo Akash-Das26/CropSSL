@@ -500,7 +500,7 @@ if not st.session_state.authed:
             u = st.text_input("Username", placeholder="admin", label_visibility="visible")
             p = st.text_input("Password", type="password", placeholder="••••••••", label_visibility="visible")
             st.markdown("<br>", unsafe_allow_html=True)
-            if st.form_submit_button("🚀 Sign In", use_container_width=True, type="primary"):
+            if st.form_submit_button("🚀 Sign In", width="stretch", type="primary"):
                 if u and p:
                     user = auth_user(u, p)
                     if user:
@@ -557,7 +557,7 @@ with st.sidebar:
                             format_func=lambda x: {"vit_small": "ViT-S/16 (21M)", "vit_base": "ViT-B/16 (86M)",
                                                     "vit_large": "ViT-L/16 (304M)"}[x],
                             label_visibility="collapsed")
-    if st.button("🚀 Load Model", use_container_width=True, type="primary"):
+    if st.button("🚀 Load Model", width="stretch", type="primary"):
         with st.spinner("Loading model..."):
             try:
                 m = load_model(method, backbone)
@@ -600,7 +600,7 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
     st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
-    if st.button("🚪 Logout", use_container_width=True):
+    if st.button("🚪 Logout", width="stretch"):
         for k in ["authed", "user", "model", "model_name", "history", "training_losses", "training_active"]:
             st.session_state[k] = None
         st.session_state.authed = False
@@ -662,7 +662,7 @@ with tab1:
         uf = st.file_uploader("Choose a plant leaf image", type=["jpg", "jpeg", "png"], label_visibility="collapsed")
         if uf:
             img = Image.open(uf)
-            st.image(img, caption="Uploaded Leaf", use_container_width=True, channels="RGB")
+            st.image(img, caption="Uploaded Leaf", width="stretch", channels="RGB")
         else:
             st.markdown("""
             <div style="text-align:center; padding:3rem 1rem; color:var(--text-muted); border:2px dashed var(--border); border-radius:16px; margin:0.5rem 0;">
@@ -862,7 +862,7 @@ with tab3:
     </div>
     """, unsafe_allow_html=True)
 
-    if st.button("🚀 Start Training", use_container_width=True, type="primary"):
+    if st.button("🚀 Start Training", width="stretch", type="primary"):
         pb = st.progress(0)
         status_text = st.empty()
         chart_placeholder = st.empty()
@@ -979,7 +979,7 @@ with tab4:
             "Target Acc (%)": [71.8, 68.5, 74.2, 79.1, 73.6],
             "Accuracy Drop (%)": [24.4, 27.7, 22.0, 17.1, 22.6],
         })
-        st.dataframe(df_shift, use_container_width=True, hide_index=True)
+        st.dataframe(df_shift, width="stretch", hide_index=True)
 
         st.markdown("""
         <div style="margin:1rem 0;">
@@ -1016,7 +1016,7 @@ with tab4:
             "Target (%)": [74.5, 69.3, 67.1, 71.2],
             "Drop (%)": [22.6, 26.5, 27.1, 22.4],
         })
-        st.dataframe(df_ssl, use_container_width=True, hide_index=True)
+        st.dataframe(df_ssl, width="stretch", hide_index=True)
 
     except ImportError:
         st.info("Install pandas for cross-domain analysis: `pip install pandas`")
@@ -1140,7 +1140,7 @@ with tab6:
     with c1:
         st.markdown("**📝 Register Current Model**")
         reg_name = st.text_input("Model Name", value="simclr_vit_small", key="reg_name")
-        if st.button("📦 Register Model", use_container_width=True, type="primary"):
+        if st.button("📦 Register Model", width="stretch", type="primary"):
             if st.session_state.model:
                 try:
                     import urllib.request, json
@@ -1184,7 +1184,7 @@ with tab6:
 
     st.markdown("**🔄 Rollback**")
     rollback_name = st.text_input("Model to Rollback", value="simclr_vit_small", key="rollback_name")
-    if st.button("⏪ Rollback", use_container_width=True):
+    if st.button("⏪ Rollback", width="stretch"):
         try:
             import urllib.request
             req = urllib.request.Request(
