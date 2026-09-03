@@ -85,7 +85,7 @@ def test_dinov2_forward():
     model = DINOv2(backbone="vit_small", embed_dim=384, out_dim=256)
     crops = [torch.randn(2, 3, 224, 224) for _ in range(10)]
     result = model(crops)
-    assert "loss" in result, f"Missing 'loss' in result"
+    assert "loss" in result, "Missing 'loss' in result"
     assert result["loss"].ndim == 0, f"Loss should be scalar, got shape {result['loss'].shape}"
     assert result["student_out"].shape[0] >= 10, f"student_out: {result['student_out'].shape}"
     print(f"    Loss: {result['loss'].item():.4f}")
@@ -117,8 +117,8 @@ def test_moco_v3_forward():
     x_q = torch.randn(4, 3, 224, 224)
     x_k = torch.randn(4, 3, 224, 224)
     result = model(x_q, x_k)
-    assert "loss" in result, f"Missing 'loss'"
-    assert result["loss"].ndim == 0, f"Loss should be scalar"
+    assert "loss" in result, "Missing 'loss'"
+    assert result["loss"].ndim == 0, "Loss should be scalar"
     print(f"    Loss: {result['loss'].item():.4f}")
 
 
@@ -139,8 +139,8 @@ def test_simclr_forward():
     v1 = torch.randn(4, 3, 224, 224)
     v2 = torch.randn(4, 3, 224, 224)
     result = model(v1, v2)
-    assert "loss" in result, f"Missing 'loss'"
-    assert result["loss"].ndim == 0, f"Loss should be scalar"
+    assert "loss" in result, "Missing 'loss'"
+    assert result["loss"].ndim == 0, "Loss should be scalar"
     assert result["z_i"].shape == (4, 128), f"z_i: {result['z_i'].shape}"
     print(f"    Loss: {result['loss'].item():.4f}")
 
@@ -158,8 +158,8 @@ def test_mae_forward():
     model = MAE(backbone="vit_small", embed_dim=384, img_size=224)
     imgs = torch.randn(2, 3, 224, 224)
     result = model(imgs)
-    assert "loss" in result, f"Missing 'loss'"
-    assert result["loss"].ndim == 0, f"Loss should be scalar"
+    assert "loss" in result, "Missing 'loss'"
+    assert result["loss"].ndim == 0, "Loss should be scalar"
     assert result["pred"].shape[0] == 2, f"pred batch: {result['pred'].shape}"
     assert result["mask"].shape == (2, 196), f"mask: {result['mask'].shape}"
     print(f"    Loss: {result['loss'].item():.4f}")
@@ -511,7 +511,7 @@ def test_grad_cam():
     x = torch.randn(1, 3, 224, 224)
     cam = grad_cam.generate(x)
     assert cam.ndim == 2, f"Expected 2D heatmap, got {cam.ndim}D"
-    assert cam.min() >= 0 and cam.max() <= 1, f"Heatmap not in [0,1]"
+    assert cam.min() >= 0 and cam.max() <= 1, "Heatmap not in [0,1]"
     print(f"    Heatmap shape: {cam.shape}, range: [{cam.min():.3f}, {cam.max():.3f}]")
 
 
@@ -645,7 +645,7 @@ def test_early_stopping():
     assert not es(0.8)  # patience=1
     assert not es(0.9)  # patience=2
     assert es(1.0)      # patience=3 -> stop
-    print(f"    Early stop triggered after patience=3")
+    print("    Early stop triggered after patience=3")
 
 
 def test_model_ema():
@@ -662,7 +662,7 @@ def test_model_ema():
     print(f"    EMA diff after 1 step: {diff:.6f}")
     # Store/restore
     ema.store()
-    print(f"    EMA store/restore works")
+    print("    EMA store/restore works")
 
 
 def test_cutmix():
@@ -738,7 +738,7 @@ def test_model_summary():
 def test_new_plant_diseases():
     from crop_ssl.data.datasets.new_plant_diseases import NewPlantDiseasesDataset
     from crop_ssl.data.transforms.augmentations import get_default_train_transform
-    import tempfile, os
+    import tempfile
     with tempfile.TemporaryDirectory() as tmpdir:
         transform = get_default_train_transform(224)
         ds = NewPlantDiseasesDataset(root=tmpdir, split="train", transform=transform)
@@ -773,7 +773,7 @@ def test_dataset_registry():
 # 13. Backend API Tests
 # ============================================================
 def test_backend_api():
-    from crop_ssl.backend.api import app, DISEASE_CLASSES, NUM_CLASSES
+    from crop_ssl.backend.api import DISEASE_CLASSES, NUM_CLASSES
     assert NUM_CLASSES == 38
     assert len(DISEASE_CLASSES) == 38
     print(f"    API: {NUM_CLASSES} disease classes loaded")
@@ -787,18 +787,15 @@ def test_model_export():
     summary = model_summary(model)
     assert params["total"] > 0
     assert "Total parameters" in summary
-    # Test ONNX export if onnxscript is available
-    try:
-        import onnxscript
-        from crop_ssl.utils.export import export_to_onnx
-        import tempfile
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = export_to_onnx(model, f"{tmpdir}/test.onnx")
-            assert Path(path).exists()
-        print(f"    Export: ONNX saved, {params['total']:,} params")
-    except ImportError:
-        print(f"    Export: summary OK, ONNX skipped (onnxscript not installed)")
-        print(f"    Params: {params['total']:,}")
+    # ONNX export uses the legacy exporter (dynamo=False) — no onnxscript needed.
+    # `onnx` is a hard requirement, so run the real export unconditionally.
+    from crop_ssl.utils.export import export_to_onnx
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = export_to_onnx(model, f"{tmpdir}/test.onnx")
+        assert Path(path).exists()
+        assert Path(path).stat().st_size > 0, "ONNX file is empty"
+    print(f"    Export: ONNX saved, {params['total']:,} params")
 
 
 # ============================================================
@@ -896,7 +893,7 @@ def test_config_system():
     # Round-trip
     cfg2 = ExperimentConfig.from_dict(d)
     assert cfg2.ssl.method == "dinov2"
-    print(f"    Config round-trip OK")
+    print("    Config round-trip OK")
 
 
 def test_logging_timer():
@@ -919,7 +916,7 @@ def test_reproducibility():
     set_seed(42)
     b = torch.randn(5)
     assert torch.equal(a, b), "Seeds not producing identical results"
-    print(f"    Reproducibility: identical tensors with same seed")
+    print("    Reproducibility: identical tensors with same seed")
 
 
 def test_tta_single_image():
@@ -1037,10 +1034,11 @@ def test_calibration_pipeline_platt():
     val_logits = torch.randn(100, 10)
     val_labels = torch.randint(0, 10, (100,))
     result = pipeline.fit(val_logits, val_labels)
+    assert "ece_after" in result, "fit() must return ECE metrics"
     test_logits = torch.randn(50, 10)
     calibrated = pipeline.calibrate(test_logits)
     assert calibrated.shape == test_logits.shape
-    print(f"    Platt calibration OK")
+    print("    Platt calibration OK")
 
 
 def test_active_learner_query_by_committee():
@@ -1371,8 +1369,8 @@ def test_moco_negative_pairs():
     print(f"    Same-pair loss: {r1['loss'].item():.4f}, Diff-pair: {r2['loss'].item():.4f}")
 
 
-def test_mae_reconstruction_quality():
-    """Verify MAE reconstruction output shape matches input patches."""
+def test_mae_reconstruction_quality_direct():
+    """Verify MAE reconstruction output shape matches input patches (direct class)."""
     from crop_ssl.models.ssl.mae import MAE
     model = MAE(backbone="vit_small", embed_dim=384, img_size=224, mask_ratio=0.75)
     imgs = torch.randn(2, 3, 224, 224)
@@ -1437,7 +1435,7 @@ def test_cutmix_label_proportions():
     row_sums = mixed_labels.sum(dim=1)
     assert torch.allclose(row_sums, torch.ones(16), atol=0.01), \
         f"Label row sums not ~1.0: {row_sums}"
-    print(f"    CutMix label proportions: all rows sum to ~1.0 ✓")
+    print("    CutMix label proportions: all rows sum to ~1.0 ✓")
 
 
 def test_cosine_warmup_monotonic_warmup():
@@ -1491,7 +1489,8 @@ def test_gradient_clipping():
     norm_before = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
     # After clipping, total norm should be <= 1.0 (or close)
     total_norm = sum(p.grad.norm().item()**2 for p in model.parameters() if p.grad is not None)**0.5
-    print(f"    Grad norm before clip: {norm_before:.4f}")
+    assert total_norm <= 1.0 + 1e-5, f"Post-clip norm {total_norm:.4f} exceeds max_norm=1.0"
+    print(f"    Grad norm before clip: {norm_before:.4f}, after: {total_norm:.4f}")
 
 
 def test_model_ema_decay_effect():
@@ -1624,20 +1623,17 @@ def test_config_from_dict_roundtrip():
     print("    Config roundtrip: all values preserved ✓")
 
 
-def test_export_ssl_backbone():
-    """Test SSL backbone export function."""
-    try:
-        import onnxscript
-        from crop_ssl.utils.export import export_ssl_backbone
-        from crop_ssl.models.ssl.simclr import SimCLR
-        import tempfile
-        model = SimCLR(backbone="vit_small", embed_dim=384)
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = export_ssl_backbone(model, f"{tmpdir}/backbone.onnx")
-            assert Path(path).exists()
-        print("    SSL backbone export: OK ✓")
-    except ImportError:
-        print("    SSL backbone export: skipped (onnxscript not installed)")
+def test_export_ssl_backbone_direct():
+    """Test SSL backbone export function (direct SimCLR constructor)."""
+    from crop_ssl.utils.export import export_ssl_backbone
+    from crop_ssl.models.ssl.simclr import SimCLR
+    import tempfile
+    model = SimCLR(backbone="vit_small", embed_dim=384)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = export_ssl_backbone(model, f"{tmpdir}/backbone.onnx")
+        assert Path(path).exists()
+        assert Path(path).stat().st_size > 0, "ONNX file is empty"
+    print("    SSL backbone export: OK ✓")
 
 
 def test_cross_domain_dataset_with_new_datasets():
@@ -1780,7 +1776,7 @@ def test_extreme_values_forward():
         feat = model.forward_features(x)
     assert feat.shape == (2, 384)
     assert not torch.isnan(feat).any(), "Extreme input produced NaN"
-    print(f"    Extreme input (100.0): no NaN")
+    print("    Extreme input (100.0): no NaN")
 
 
 def test_single_sample_batch():
@@ -2085,7 +2081,6 @@ def test_training_loop_one_epoch():
     model.train()
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
     scheduler = CosineWarmupScheduler(optimizer, warmup_epochs=1, total_epochs=3)
-    criterion = lambda x1, x2: model(x1, x2)["loss"]
 
     losses = []
     for step in range(5):
@@ -2100,9 +2095,9 @@ def test_training_loop_one_epoch():
 
     # Loss should be finite
     assert all(torch.isfinite(torch.tensor(l)) for l in losses), "Non-finite loss in training loop"
-    # Gradients should be zeroed after step
+    # Gradients must have flowed through the model during training
     has_grad = any(p.grad is not None and p.grad.abs().sum() > 0 for p in model.parameters())
-    # After zero_grad + step, grads may be non-zero (from last backward), that's OK
+    assert has_grad, "No gradients flowed through model parameters"
     print(f"    Training loop (5 steps, loss: {losses[0]:.4f} -> {losses[-1]:.4f}): OK")
 
 
@@ -2148,7 +2143,7 @@ def test_full_pipeline_mini():
     import time
     from crop_ssl.models.ssl import create_ssl_model
     from crop_ssl.models.adaptation.few_shot_adapter import FewShotAdapter
-    from crop_ssl.evaluation.metrics import compute_accuracy, EvaluationSuite
+    from crop_ssl.evaluation.metrics import compute_accuracy
     from torch.utils.data import DataLoader, TensorDataset
 
     t0 = time.time()
@@ -2234,7 +2229,7 @@ def test_multi_crop_dinov2():
         result = model(crops)
         assert "loss" in result
         assert torch.isfinite(result["loss"])
-    print(f"    DINOv2 multi-crop configs: OK")
+    print("    DINOv2 multi-crop configs: OK")
 
 
 def test_concurrent_forward_passes():
@@ -2586,10 +2581,13 @@ def test_coral_different_positive():
 def test_temperature_scaling_monotonic():
     """Higher temperature should decrease confidence."""
     from crop_ssl.evaluation.calibration import TemperatureScaling
-    ts = TemperatureScaling(init_temperature=1.0)
+    # Forward divides logits by the temperature, so a 1.0 vs 5.0 scaler
+    # must produce monotonically decreasing confidence.
+    ts1 = TemperatureScaling(init_temperature=1.0)
+    ts5 = TemperatureScaling(init_temperature=5.0)
     logits = torch.randn(20, 10)
-    probs_t1 = torch.softmax(logits / 1.0, dim=-1)
-    probs_t5 = torch.softmax(logits / 5.0, dim=-1)
+    probs_t1 = torch.softmax(ts1(logits), dim=-1)
+    probs_t5 = torch.softmax(ts5(logits), dim=-1)
     conf_t1 = probs_t1.max(dim=-1).values.mean().item()
     conf_t5 = probs_t5.max(dim=-1).values.mean().item()
     assert conf_t1 > conf_t5, f"T=1 conf={conf_t1} should > T=5 conf={conf_t5}"
@@ -2653,7 +2651,7 @@ def test_ema_converges_to_model():
 def test_checkpoint_size_reasonable():
     """Checkpoint file size should be within expected range."""
     import tempfile, os
-    from crop_ssl.utils.checkpointing import save_checkpoint, load_checkpoint
+    from crop_ssl.utils.checkpointing import save_checkpoint
     from crop_ssl.models.backbones.vit import vit_small_patch16
     model = vit_small_patch16()
     with tempfile.NamedTemporaryFile(suffix=".pth", delete=False) as f:
@@ -2854,7 +2852,7 @@ def test_throughput_benchmark():
         throughput = (bs * n_iters) / elapsed
         throughputs[bs] = throughput
     # Throughput should increase or stay stable with batch size
-    assert throughputs[4] >= throughputs[1] * 0.8, f"Throughput degradation at bs=4"
+    assert throughputs[4] >= throughputs[1] * 0.8, "Throughput degradation at bs=4"
     print(f"    Throughput: bs1={throughputs[1]:.0f} img/s, bs4={throughputs[4]:.0f} img/s, bs8={throughputs[8]:.0f} img/s")
 
 def test_lora_does_not_mutate_shared_backbone():
@@ -2888,7 +2886,6 @@ def test_lora_does_not_mutate_shared_backbone():
 
 def test_memory_efficiency():
     """Verify LoRA uses less memory than full fine-tuning."""
-    import sys
     from crop_ssl.models.adaptation.few_shot_adapter import FewShotAdapter
     from crop_ssl.models.backbones.vit import vit_small_patch16
     backbone = vit_small_patch16()
@@ -2985,7 +2982,6 @@ def test_feature_extraction_speed():
 def test_attention_computation_cost():
     """Verify attention computation cost scales correctly."""
     from crop_ssl.models.backbones.vit import vit_small_patch16
-    import time
     model = vit_small_patch16()
     model.eval()
     # Verify different batch sizes work correctly
@@ -3061,7 +3057,6 @@ def test_ssl_pretraining_convergence():
 
 def test_lora_training_speed():
     """LoRA should train faster than full fine-tuning."""
-    import time
     from crop_ssl.models.adaptation.few_shot_adapter import FewShotAdapter
     from crop_ssl.models.backbones.vit import vit_small_patch16
     backbone = vit_small_patch16()
@@ -3137,8 +3132,9 @@ def test_moco_queue_capacity():
     model.eval()
     with torch.no_grad():
         result = model(x, torch.randn_like(x))
-    # Queue size should be preserved
+    # Queue size should be preserved and a loss returned
     assert model.queue.shape == (256, 65536), f"Queue changed after forward: {model.queue.shape}"
+    assert "loss" in result, "MoCo forward must return a loss"
     print("    MoCo queue: shape preserved after forward ✓")
 
 def test_mae_reconstruction_quality():
@@ -3185,7 +3181,7 @@ def test_domain_shift_metrics_calculation():
     assert result["absolute_accuracy_drop"] == 18.0, f"Abs drop: {result['absolute_accuracy_drop']}"
     assert abs(result["relative_accuracy_drop"] - 20.0) < 0.1, f"Rel drop: {result['relative_accuracy_drop']}"
     assert abs(result["robustness_score"] - 0.8) < 0.01, f"Robustness: {result['robustness_score']}"
-    print(f"    Domain shift: drop=18%, relative=20%, robustness=0.800 ✓")
+    print("    Domain shift: drop=18%, relative=20%, robustness=0.800 ✓")
 
 def test_few_shot_sampler_episode_quality():
     """Episodic sampler should produce valid N-way K-shot episodes."""
@@ -3199,10 +3195,10 @@ def test_few_shot_sampler_episode_quality():
     episodes = sampler.get_episode_info()
     assert len(episodes) == 2, f"Expected 2 episodes, got {len(episodes)}"
     for ep in episodes:
-        assert ep["k_shot"] == 3, f"k_shot should be 3"
-        assert ep["q_query"] == 5, f"q_query should be 5"
-        assert len(ep["classes"]) <= 5, f"n_way should be <= 5"
-    print(f"    Episode quality: 2 episodes, n_way=5, k_shot=3, q_query=5 ✓")
+        assert ep["k_shot"] == 3, "k_shot should be 3"
+        assert ep["q_query"] == 5, "q_query should be 5"
+        assert len(ep["classes"]) <= 5, "n_way should be <= 5"
+    print("    Episode quality: 2 episodes, n_way=5, k_shot=3, q_query=5 ✓")
 
 
 def test_config_serialization_roundtrip():
@@ -3221,7 +3217,7 @@ def test_config_serialization_roundtrip():
     assert restored.seed == original.seed
     assert restored.ssl.method == original.ssl.method
     assert restored.few_shot.k_shot == original.few_shot.k_shot
-    print(f"    Config roundtrip: all fields preserved ✓")
+    print("    Config roundtrip: all fields preserved ✓")
 
 
 def test_model_gradient_norm_bound():
@@ -3279,22 +3275,19 @@ def test_cross_domain_dataset_creation():
 def test_export_ssl_backbone():
     """Export SSL backbone should produce valid ONNX."""
     import tempfile, os
+    from crop_ssl.utils.export import export_ssl_backbone
+    from crop_ssl.models.ssl import create_ssl_model
+    model = create_ssl_model("simclr", backbone="vit_small", embed_dim=384)
+    with tempfile.NamedTemporaryFile(suffix=".onnx", delete=False) as f:
+        path = f.name
     try:
-        from crop_ssl.utils.export import export_ssl_backbone
-        from crop_ssl.models.ssl import create_ssl_model
-        model = create_ssl_model("simclr", backbone="vit_small", embed_dim=384)
-        with tempfile.NamedTemporaryFile(suffix=".onnx", delete=False) as f:
-            path = f.name
-        try:
-            result = export_ssl_backbone(model, path, input_shape=(1, 3, 224, 224))
-            assert os.path.exists(result), f"ONNX file not created: {result}"
-            size = os.path.getsize(result) / (1024 * 1024)
-            assert size > 0, "ONNX file is empty"
-            print(f"    ONNX export: {size:.1f}MB ✓")
-        finally:
-            os.unlink(path)
-    except ImportError:
-        print("    ONNX export: skipped (onnxscript not installed)")
+        result = export_ssl_backbone(model, path, input_shape=(1, 3, 224, 224))
+        assert os.path.exists(result), f"ONNX file not created: {result}"
+        size = os.path.getsize(result) / (1024 * 1024)
+        assert size > 0, "ONNX file is empty"
+        print(f"    ONNX export: {size:.1f}MB ✓")
+    finally:
+        os.unlink(path)
 
 
 def test_all_datasets_have_num_classes():
@@ -3364,7 +3357,7 @@ def test_tta_prediction_consistency():
     r2 = tta.predict(img)
     # Same image with same seeds should produce same prediction
     assert r1["pred"] == r2["pred"], f"Predictions differ: {r1['pred']} vs {r2['pred']}"
-    print(f"    TTA consistency: same prediction on same input ✓")
+    print("    TTA consistency: same prediction on same input ✓")
 
 
 def test_ensemble_weight_normalization():
@@ -3484,7 +3477,7 @@ def test_api_frontend_json_bodies_work():
 
 def test_api_checkpoint_upload_sets_active():
     """Upload a train_ssl checkpoint via /models/checkpoint and serve it."""
-    import io, tempfile
+    import tempfile
     from fastapi.testclient import TestClient
     from crop_ssl.backend.api import app
     from crop_ssl.models.ssl import create_ssl_model
@@ -3529,7 +3522,6 @@ def test_api_checkpoint_upload_sets_active():
 
 def test_api_onnx_export_roundtrip():
     """Export a loaded model to ONNX via /models/{name}/export."""
-    import tempfile
     from pathlib import Path
     from fastapi.testclient import TestClient
     from crop_ssl.backend.api import app
@@ -3615,7 +3607,7 @@ def test_evaluate_load_model_transfers_weights():
         "checkpoint weights were not transferred exactly"
     logits = adapter(x)["logits"]
     assert tuple(logits.shape) == (2, 10)
-    print(f"    evaluate.load_model weight transfer: exact ✓")
+    print("    evaluate.load_model weight transfer: exact ✓")
 
 
 def test_compare_benchmark_prototypical_runs():
@@ -3889,7 +3881,7 @@ if __name__ == "__main__":
     run_test("EMA training benefit", test_ema_training_benefit)
     run_test("DINOv2 teacher init", test_dinov2_teacher_student_consistency)
     run_test("MoCo queue capacity", test_moco_queue_capacity)
-    run_test("MAE reconstruction quality", test_mae_reconstruction_quality)
+    run_test("MAE reconstruction quality (direct)", test_mae_reconstruction_quality_direct)
     run_test("GradCAM hook cleanup", test_gradcam_hook_cleanup)
     run_test("Domain shift metrics", test_domain_shift_metrics_calculation)
     run_test("Episode sampler quality", test_few_shot_sampler_episode_quality)
@@ -3897,7 +3889,7 @@ if __name__ == "__main__":
     run_test("Gradient norm bound", test_model_gradient_norm_bound)
     run_test("Augmentation invariance", test_augmentation_invariance)
     run_test("Cross-domain pairs", test_cross_domain_dataset_creation)
-    run_test("Export SSL backbone", test_export_ssl_backbone)
+    run_test("Export SSL backbone (direct)", test_export_ssl_backbone_direct)
     run_test("All datasets num_classes", test_all_datasets_have_num_classes)
     run_test("Eval suite accumulation", test_evaluation_suite_accumulation)
     run_test("Scheduler full cycle", test_cosine_scheduler_full_cycle)

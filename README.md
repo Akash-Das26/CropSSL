@@ -9,7 +9,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/PyTorch-2.0+-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white" alt="PyTorch">
-  <img src="https://img.shields.io/badge/Tests-215%20✅-brightgreen?style=for-the-badge" alt="Tests">
+  <img src="https://img.shields.io/badge/Tests-217%20✅-brightgreen?style=for-the-badge" alt="Tests">
   <img src="https://img.shields.io/badge/SSL-4%20Methods-blueviolet?style=for-the-badge" alt="SSL">
   <img src="https://img.shields.io/badge/Datasets-14-teal?style=for-the-badge" alt="Datasets">
   <img src="https://img.shields.io/badge/API-56%20Endpoints-orange?style=for-the-badge" alt="API">
@@ -251,7 +251,7 @@ Full measured sweep (k = 1…20, both backbones) lives in
 
 ---
 
-## 🧪 Test Suite: 215/215 Passing
+## 🧪 Test Suite: 217/217 Passing
 
 ```
 pytest crop_ssl/tests/test_all.py
@@ -831,7 +831,7 @@ The full API surface is also browsable live at `http://localhost:8000/docs`.
 
 ```
 CropSSL/
-├── .github/workflows/ci.yml       # CI/CD: syntax + imports + 215 tests + Docker
+├── .github/workflows/ci.yml       # CI/CD: syntax + imports + 217 tests + Docker
 ├── android/                       # Native Android WebView wrapper (APK)
 ├── crop_ssl/
 │   ├── models/
@@ -900,7 +900,7 @@ CropSSL/
 │   │   ├── logging.py                 # Structured logging
 │   │   └── reproducibility.py         # Seed-based determinism
 │   └── tests/
-│       └── test_all.py                # 215 tests (all passing)
+│       └── test_all.py                # 217 tests (all passing)
 ├── assets/logo.png
 ├── requirements.txt
 ├── pyproject.toml
@@ -948,8 +948,8 @@ Every push to `main` runs three automated checks via GitHub Actions
 
 | Job | What runs |
 |-----|-----------|
-| **checks** | `compileall` syntax gate + import smoke-test of all 48 modules + secret scan |
-| **test** | The full **215-test** suite (`pytest crop_ssl/tests/test_all.py`) |
+| **checks** | `compileall` syntax gate + import smoke-test of all 50 modules + secret scan |
+| **test** | The full **217-test** suite (`pytest crop_ssl/tests/test_all.py`) |
 | **docker** | Verifies the Docker image builds (on `main`) |
 
 Badge status shows directly under the project title. Run everything locally
