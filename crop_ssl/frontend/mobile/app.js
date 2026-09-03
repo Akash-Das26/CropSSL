@@ -195,8 +195,58 @@
             )
           )
           .join("");
+        const es = $("exportSelect");
+        if (es && Array.isArray(list)) {
+          es.innerHTML =
+            '<option value="">Select a model…</option>' +
+            list
+              .map((m) => '<option value="' + esc(m.name) + '">' + esc(m.name) + "</option>")
+              .join("");
+        }
       })
       .catch(() => {});
+  }
+
+  function wireExport() {
+    const btn = $("exportBtn");
+    if (!btn) return;
+    btn.addEventListener("click", () => {
+      const name = ($("exportSelect") || {}).value || "";
+      const hint = $("exportHint");
+      const dl = $("exportDl");
+      if (!name) {
+        hint.textContent = "Choose a model first.";
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = "Exporting…";
+      hint.textContent = "";
+      if (dl) dl.hidden = true;
+      fetch(API() + "/models/" + encodeURIComponent(name) + "/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ opset: 14, input_size: 224 }),
+      })
+        .then(async (r) => {
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error((j.detail || r.status) + "");
+          if (dl) {
+            dl.href = API() + "/models/" + encodeURIComponent(name) + "/export";
+            dl.hidden = false;
+            dl.textContent = "⬇ " + (j.size_mb || "?") + " MB · " +
+              (j.verified ? "verified ✓" : "not verified");
+          }
+          hint.textContent =
+            "Exported " + (j.size_mb || "?") + " MB → tap Download to save the .onnx";
+        })
+        .catch((e) => {
+          hint.textContent = "Export failed: " + e.message;
+        })
+        .finally(() => {
+          btn.disabled = false;
+          btn.textContent = "⚡ Export";
+        });
+    });
   }
 
   function li(k, v, cls) {
@@ -243,6 +293,7 @@
 
     // load model list once API base is set
     refreshModelList();
+    wireExport();
     $("apiBase").addEventListener("change", refreshModelList);
 
     // service worker

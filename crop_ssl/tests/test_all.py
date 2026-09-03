@@ -3535,6 +3535,21 @@ def test_api_onnx_export_roundtrip():
     print(f"    ONNX export → {d['size_mb']} MB, download {len(r2.content)} bytes ✓")
 
 
+def test_onnx_knn_classifier_runs():
+    """Few-shot k-NN classifier runs on synthetic data (both embed paths)."""
+    import argparse
+    from crop_ssl.scripts import onnx_knn
+
+    args = argparse.Namespace(
+        method="simclr", backbone="vit_small", checkpoint=None,
+        onnx=None, data_root="./data", shots=3, k=3,
+        num_classes=4, image_size=64, batch_size=16, seed=0, cpu=True,
+    )
+    acc = onnx_knn.run_eval(args)
+    assert 0.0 <= acc <= 1.0
+    print(f"    k-NN classifier on synthetic data: {acc * 100:.1f}% ✓")
+
+
 def test_evaluate_load_model_transfers_weights():
     """evaluate.load_model must load save_checkpoint checkpoints exactly.
 
@@ -3863,6 +3878,7 @@ if __name__ == "__main__":
     run_test("/predict upload roundtrip", test_api_predict_upload_roundtrip)
     run_test("checkpoint upload sets active", test_api_checkpoint_upload_sets_active)
     run_test("ONNX export roundtrip", test_api_onnx_export_roundtrip)
+    run_test("ONNX k-NN classifier", test_onnx_knn_classifier_runs)
     run_test("frontend JSON bodies work", test_api_frontend_json_bodies_work)
     run_test("evaluate checkpoint weight transfer", test_evaluate_load_model_transfers_weights)
     run_test("compare benchmark prototypical", test_compare_benchmark_prototypical_runs)

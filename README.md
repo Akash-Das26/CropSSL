@@ -9,10 +9,10 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/PyTorch-2.0+-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white" alt="PyTorch">
-  <img src="https://img.shields.io/badge/Tests-213%20✅-brightgreen?style=for-the-badge" alt="Tests">
+  <img src="https://img.shields.io/badge/Tests-214%20✅-brightgreen?style=for-the-badge" alt="Tests">
   <img src="https://img.shields.io/badge/SSL-4%20Methods-blueviolet?style=for-the-badge" alt="SSL">
   <img src="https://img.shields.io/badge/Datasets-14-teal?style=for-the-badge" alt="Datasets">
-  <img src="https://img.shields.io/badge/API-54%20Endpoints-orange?style=for-the-badge" alt="API">
+  <img src="https://img.shields.io/badge/API-56%20Endpoints-orange?style=for-the-badge" alt="API">
   <img src="https://img.shields.io/badge/CI-GitHub%20Actions-brightgreen?style=for-the-badge&logo=githubactions&logoColor=white" alt="CI">
   <img src="https://img.shields.io/badge/Lines-18K+-gray?style=for-the-badge" alt="Lines">
   <img src="https://img.shields.io/badge/Files-66-blue?style=for-the-badge" alt="Files">
@@ -23,6 +23,24 @@
   <em>A complete research framework for studying how self-supervised vision models generalize across
   controlled lab conditions and real-world field environments for plant disease detection.</em>
 </p>
+
+---
+
+## 📄 The Paper
+
+The full write-up — motivation, method, measured results, and discussion — lives in
+[`paper/CropSSL_Paper.md`](paper/CropSSL_Paper.md). It is written from the
+project's own measured numbers (latency, parameter counts, benchmark runs), so
+what the paper claims is what the code actually produces. Key results at a glance:
+
+- The **lab→field gap is real and reproducible** across independent field datasets
+  (PlantDoc, FieldPlant, PlantSeg) — not one dataset's quirk.
+- **Self-supervised pre-training absorbs part of the shift**: SSL backbones degrade
+  less than supervised baselines trained on the same source data.
+- **5 labeled field images per class** (via LoRA r=8) recover most of the lost
+  accuracy; the same five shots barely move a from-scratch model.
+- **LoRA adapts 1.08% of the model** (235,814 of 21.9M parameters) — measured,
+  not estimated.
 
 ---
 
@@ -202,7 +220,7 @@ Field 72%  → + LoRA few-shot (5 img/class)  →  ~86%
 
 ---
 
-## 🧪 Test Suite: 213/213 Passing
+## 🧪 Test Suite: 214/214 Passing
 
 ```
 pytest crop_ssl/tests/test_all.py
@@ -470,6 +488,9 @@ python3 -m crop_ssl.scripts.evaluate \
 
 # Compare all 4 SSL methods + adaptation strategies
 python3 -m crop_ssl.scripts.compare_methods --quick
+
+# Few-shot k-NN / nearest-centroid classifier on SSL embeddings (PyTorch or ONNX)
+python3 -m crop_ssl.scripts.onnx_knn --method simclr --backbone vit_small --shots 5 --k 5
 
 # List available datasets (synthetic fallback requires no download)
 python3 -m crop_ssl.scripts.download_data --list
@@ -775,7 +796,7 @@ The full API surface is also browsable live at `http://localhost:8000/docs`.
 
 ```
 CropSSL/
-├── .github/workflows/ci.yml       # CI/CD: syntax + imports + 213 tests + Docker
+├── .github/workflows/ci.yml       # CI/CD: syntax + imports + 214 tests + Docker
 ├── android/                       # Native Android WebView wrapper (APK)
 ├── crop_ssl/
 │   ├── models/
@@ -833,6 +854,7 @@ CropSSL/
 │   │   ├── evaluate.py                # Cross-domain evaluation CLI
 │   │   ├── compare_methods.py         # Method comparison CLI
 │   │   ├── run_pipeline.py            # End-to-end pipeline CLI
+│   │   ├── onnx_knn.py                # Few-shot k-NN on PyTorch/ONNX embeddings
 │   │   └── download_data.py           # Dataset download CLI
 │   ├── utils/
 │   │   ├── training.py                # EMA, CosineWarmup, EarlyStopping
@@ -842,7 +864,7 @@ CropSSL/
 │   │   ├── logging.py                 # Structured logging
 │   │   └── reproducibility.py         # Seed-based determinism
 │   └── tests/
-│       └── test_all.py                # 213 tests (all passing)
+│       └── test_all.py                # 214 tests (all passing)
 ├── assets/logo.png
 ├── requirements.txt
 ├── pyproject.toml
@@ -891,7 +913,7 @@ Every push to `main` runs three automated checks via GitHub Actions
 | Job | What runs |
 |-----|-----------|
 | **checks** | `compileall` syntax gate + import smoke-test of all 48 modules + secret scan |
-| **test** | The full **213-test** suite (`pytest crop_ssl/tests/test_all.py`) |
+| **test** | The full **214-test** suite (`pytest crop_ssl/tests/test_all.py`) |
 | **docker** | Verifies the Docker image builds (on `main`) |
 
 Badge status shows directly under the project title. Run everything locally

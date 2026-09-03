@@ -70,7 +70,7 @@ jobs:
           echo "No obvious secrets"
 
   test:
-    name: Full test suite (213 tests)
+    name: Full test suite (214 tests)
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:

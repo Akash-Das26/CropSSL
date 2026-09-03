@@ -90,6 +90,20 @@
     <section class="card">
       <h2 class="mini-head">🧠 Loaded Models</h2>
       <ul class="kv" id="modelList"></ul>
+      <label class="field" style="margin-top:0.8rem;">
+        <span>Export to ONNX (offline inference)</span>
+        <select id="exportSelect" aria-label="Model to export">
+          <option value="">Select a model…</option>
+        </select>
+      </label>
+      <div class="row" style="gap:0.5rem;">
+        <button id="exportBtn" class="btn ghost" type="button" style="flex:1;">⚡ Export</button>
+        <a id="exportDl" class="btn ghost" style="flex:1; text-align:center; text-decoration:none;" hidden>⬇ Download</a>
+      </div>
+      <p class="hint" id="exportHint">
+        Export any loaded model to ONNX — then pair the embeddings with a
+        k-NN / nearest-centroid head for fully offline on-device inference.
+      </p>
     </section>
 
     <section class="card">

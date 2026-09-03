@@ -240,6 +240,12 @@ class PipelineCreateRequest(BaseModel):
     num_shots: int = 10
 
 
+class ExportRequest(BaseModel):
+    """Body for POST /models/{name}/export (JSON, matching the docs/curl)."""
+    opset: int = 14
+    input_size: int = 224
+
+
 # ============================================================
 # Helpers
 # ============================================================
@@ -586,11 +592,7 @@ async def upload_checkpoint_model(
 
 
 @app.post("/models/{model_name}/export")
-async def export_model(
-    model_name: str,
-    opset: int = 14,
-    input_size: int = 224,
-):
+async def export_model(model_name: str, req: ExportRequest = Body(...)):
     """Export a loaded model to ONNX for on-device (Android/PWA) inference.
 
     Uses the same export utilities as the training pipeline. The exported
@@ -613,15 +615,15 @@ async def export_model(
         export_ssl_backbone(
             model, str(out_path),
             backbone_type="teacher",
-            input_shape=(1, 3, input_size, input_size),
+            input_shape=(1, 3, req.input_size, req.input_size),
         )
     except Exception as e:
         # Fall back to exporting the full model if backbone extraction fails
         from crop_ssl.utils.export import export_to_onnx
         try:
             export_to_onnx(
-                model, str(out_path), input_shape=(1, 3, input_size, input_size),
-                opset_version=opset,
+                model, str(out_path), input_shape=(1, 3, req.input_size, req.input_size),
+                opset_version=req.opset,
             )
         except Exception as e2:
             raise HTTPException(500, f"Export failed: {e} | fallback: {e2}")
@@ -631,7 +633,7 @@ async def export_model(
     # Verify with onnxruntime when available (best-effort, never fails the request)
     verified = False
     try:
-        verified = verify_onnx(str(out_path), model, input_shape=(1, 3, input_size, input_size))
+        verified = verify_onnx(str(out_path), model, input_shape=(1, 3, req.input_size, req.input_size))
     except Exception:
         verified = False
 
@@ -643,8 +645,8 @@ async def export_model(
         "model": model_name,
         "path": str(out_path),
         "size_mb": size_mb,
-        "input_shape": [1, 3, input_size, input_size],
-        "opset": opset,
+        "input_shape": [1, 3, req.input_size, req.input_size],
+        "opset": req.opset,
         "verified": verified,
         "download_url": f"/models/{model_name}/export",
     }
