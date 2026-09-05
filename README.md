@@ -758,7 +758,7 @@ CropSSL ships two ways to run on Android:
 > `/models`, `/system/automation-status`) so no credentials are needed on
 > the phone. For a field deployment, put the API behind your network/VPN.
 
-### Backend API (54 Routes)
+### Backend API (56 Routes)
 
 The full API surface is also browsable live at `http://localhost:8000/docs`.
 
