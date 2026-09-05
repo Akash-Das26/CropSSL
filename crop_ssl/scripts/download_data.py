@@ -19,7 +19,7 @@ Supported datasets and their primary sources:
     rice_leaf         — Synthetic fallback (manual Kaggle download required)
     coffee_leaf       — Synthetic fallback
     new_plant_diseases — Synthetic fallback (Kaggle augmented PlantVillage)
-    plant_seg         — Synthetic fallback (Zenodo: https://doi.org/10.5281/zenodo.XXX)
+    plant_seg         — Synthetic fallback (GitHub: https://github.com/tqwei05/PlantSeg; data via Zenodo, linked in repo; paper: https://www.nature.com/articles/s41597-025-06513-4)
     field_plant       — Synthetic fallback (Roboflow: https://universe.roboflow.com/plant-disease-detection/fieldplant)
     diamos_plant      — Synthetic fallback (Zenodo: https://doi.org/10.5281/zenodo.5557313)
     bracol            — Synthetic fallback (Mendeley: https://data.mendeley.com/datasets/yy2k5y8mxg/1)
