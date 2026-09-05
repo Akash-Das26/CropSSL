@@ -630,6 +630,108 @@ def test_tsne():
     print(f"    t-SNE embedding: {embedding.shape}")
 
 
+def test_cka_identical_representations():
+    """CKA(X, X) must be 1.0 -- a representation is perfectly similar to itself."""
+    import numpy as np
+    from crop_ssl.evaluation.cka import linear_cka, rbf_cka
+    rng = np.random.RandomState(0)
+    X = rng.randn(120, 384)
+    assert abs(linear_cka(X, X) - 1.0) < 1e-9
+    assert abs(rbf_cka(X, X) - 1.0) < 1e-9
+    print("    CKA(X, X) = 1.0 for linear and RBF kernels")
+
+
+def test_cka_invariant_to_orthogonal_transform():
+    """CKA is invariant to orthogonal transforms + isotropic scaling."""
+    import numpy as np
+    from crop_ssl.evaluation.cka import linear_cka
+    rng = np.random.RandomState(1)
+    X = rng.randn(300, 64)
+    # Orthogonal matrix via QR decomposition of a random matrix
+    A, _ = np.linalg.qr(rng.randn(64, 64))
+    Y = X @ A
+    sim = linear_cka(X, Y)
+    assert abs(sim - 1.0) < 1e-6, f"CKA under orthogonal map should be 1, got {sim}"
+    assert abs(linear_cka(X, Y * 7.5) - 1.0) < 1e-6  # isotropic scale
+    print(f"    CKA(X, XQ) = {sim:.6f} (orthogonal + scale invariance)")
+
+
+def test_cka_independent_representations_low():
+    """Independent features must yield CKA near zero when N >> D."""
+    import numpy as np
+    from crop_ssl.evaluation.cka import linear_cka
+    rng = np.random.RandomState(2)
+    X = rng.randn(3000, 64)
+    Y = rng.randn(3000, 64)
+    sim = linear_cka(X, Y)
+    assert 0.0 <= sim < 0.05, f"Independent features should have CKA ~ 0, got {sim}"
+    print(f"    CKA(independent) = {sim:.4f} (expect ~0 with N >> D)")
+
+
+def test_cka_scale_invariance():
+    """CKA is invariant to isotropic scaling of either representation."""
+    import numpy as np
+    from crop_ssl.evaluation.cka import linear_cka
+    rng = np.random.RandomState(3)
+    X = rng.randn(1000, 96)
+    Y = rng.randn(1000, 96)
+    base = linear_cka(X, Y)
+    assert abs(linear_cka(X, Y * 100.0) - base) < 1e-9
+    assert abs(linear_cka(X * 0.01, Y) - base) < 1e-9
+    print("    CKA invariant to scaling")
+
+
+def test_cka_paired_sample_check():
+    """Mismatched sample counts must raise a clear error."""
+    import numpy as np
+    from crop_ssl.evaluation.cka import linear_cka
+    rng = np.random.RandomState(4)
+    X = rng.randn(50, 32)
+    Y = rng.randn(51, 32)
+    try:
+        linear_cka(X, Y)
+    except ValueError as e:
+        assert "same number of samples" in str(e)
+        print("    Paired-sample mismatch correctly rejected")
+    else:
+        raise AssertionError("Expected ValueError for mismatched sample counts")
+
+
+def test_cka_similarity_matrix():
+    """Pairwise matrix must be symmetric with unit diagonal."""
+    import numpy as np
+    from crop_ssl.evaluation.cka import cka_similarity_matrix, domain_shift_report
+    rng = np.random.RandomState(5)
+    feats = {
+        "source": rng.randn(80, 64),
+        "target": rng.randn(80, 64),
+        "adapted": rng.randn(80, 64),
+    }
+    mat = cka_similarity_matrix(feats)
+    assert mat.shape == (3, 3)
+    assert np.allclose(mat, mat.T)          # symmetric
+    assert np.allclose(np.diag(mat), 1.0)   # unit diagonal
+    report = domain_shift_report(feats)
+    assert len(report["pairs"]) == 3
+    assert report["pairs"][0]["cka"] <= report["pairs"][-1]["cka"]  # sorted
+    print("    CKA matrix symmetric, unit diagonal, report sorted")
+
+
+def test_cka_domain_gap_diagnosis():
+    """A shifted copy of the same signal must score higher than unrelated noise."""
+    import numpy as np
+    from crop_ssl.evaluation.cka import linear_cka
+    rng = np.random.RandomState(6)
+    base = rng.randn(100, 48)
+    shifted = base + 0.05 * rng.randn(100, 48)   # mild covariate shift
+    unrelated = rng.randn(100, 48)
+    sim_shift = linear_cka(base, shifted)
+    sim_noise = linear_cka(base, unrelated)
+    assert sim_shift > 0.8, f"Shifted copy should stay similar, got {sim_shift:.3f}"
+    assert sim_shift > sim_noise
+    print(f"    Shifted: {sim_shift:.3f} | Unrelated: {sim_noise:.3f}")
+
+
 # ============================================================
 # 11. Training Utilities Tests
 # ============================================================
@@ -3790,6 +3892,13 @@ if __name__ == "__main__":
     run_test("Calibrate then predict", test_calibrate_then_predict)
     run_test("AL all strategies", test_active_learning_all_strategies)
     run_test("Feature viz pipeline", test_feature_viz_extract_and_tsne)
+    run_test("CKA identical representations", test_cka_identical_representations)
+    run_test("CKA orthogonal-transform invariance", test_cka_invariant_to_orthogonal_transform)
+    run_test("CKA independent representations low", test_cka_independent_representations_low)
+    run_test("CKA scale invariance", test_cka_scale_invariance)
+    run_test("CKA paired-sample check", test_cka_paired_sample_check)
+    run_test("CKA similarity matrix", test_cka_similarity_matrix)
+    run_test("CKA domain-gap diagnosis", test_cka_domain_gap_diagnosis)
     run_test("ViT attention shapes", test_vit_attention_map_shapes)
     run_test("Config roundtrip detailed", test_config_from_dict_roundtrip)
     run_test("Export SSL backbone", test_export_ssl_backbone)

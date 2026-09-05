@@ -15,8 +15,11 @@ Usage:
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Dict, List, Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 import torch
 import torch.nn as nn

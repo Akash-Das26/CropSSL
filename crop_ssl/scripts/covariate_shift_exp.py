@@ -34,7 +34,10 @@ Usage:
 
 import argparse
 import json
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 import numpy as np
 import torch
@@ -186,6 +189,13 @@ def run_table(backbone, tag, k: int = 5, seed: int = 0) -> dict:
 
     src_f = encode(backbone, src_x)
     tgt_f = encode(backbone, tgt_x)
+
+    # Note: instance-level CKA (lab vs field embeddings) is intentionally NOT
+    # reported here. The synthetic source has only N_CLS distinct images
+    # (identical per-class copies), so per-instance Gram geometry is degenerate
+    # and CKA is uninformative on this toy data. CKA is the diagnosis tool for
+    # real structured domain gaps (PlantVillage -> PlantDoc) where instance
+    # diversity is genuine -- see crop_ssl.evaluation.cka.
 
     rng = np.random.RandomState(0)
     shots, query = [], []

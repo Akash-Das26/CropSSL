@@ -9,7 +9,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/PyTorch-2.0+-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white" alt="PyTorch">
-  <img src="https://img.shields.io/badge/Tests-217%20✅-brightgreen?style=for-the-badge" alt="Tests">
+  <img src="https://img.shields.io/badge/Tests-224%20✅-brightgreen?style=for-the-badge" alt="Tests">
   <img src="https://img.shields.io/badge/SSL-4%20Methods-blueviolet?style=for-the-badge" alt="SSL">
   <img src="https://img.shields.io/badge/Datasets-14-teal?style=for-the-badge" alt="Datasets">
   <img src="https://img.shields.io/badge/API-56%20Endpoints-orange?style=for-the-badge" alt="API">
@@ -251,7 +251,7 @@ Full measured sweep (k = 1…20, both backbones) lives in
 
 ---
 
-## 🧪 Test Suite: 217/217 Passing
+## 🧪 Test Suite: 224/224 Passing
 
 ```
 pytest crop_ssl/tests/test_all.py
@@ -459,6 +459,35 @@ lab set it trains on, and why it ships three ways to attack the gap:
 | **Few-shot adaptation (LoRA)** | re-fits the representation with a handful of field labels | 5–50 labeled field images per class |
 | **Domain alignment (MMD/CORAL/DANN)** | explicitly minimizes feature divergence | source + unlabeled target both available |
 
+### CKA: Measuring the Gap Itself
+
+How do you *quantify* how far apart two domains are in feature space, instead
+of only inferring it from accuracy drops? **CKA (Centered Kernel Alignment,
+Kornblith et al., 2019)** compares the geometry of two representations
+sample-by-sample:
+
+```
+CKA(X, Y)  =  HSIC(K, L) / √( HSIC(K, K) · HSIC(L, L) )      ∈ [0, 1]
+
+K = X Xᵀ   (kernel of source embeddings)      L = Y Yᵀ   (kernel of target embeddings)
+HSIC(K, L) = ⟨K_c, L_c⟩_F   (centered Hilbert–Schmidt inner product)
+
+1.0 → the two spaces encode the same relational structure (equivalent up to
+      orthogonal transform + scaling)  — the shift did not move the features
+~0   → the geometries are essentially unrelated — a large representation shift
+```
+
+Key properties (all verified by the test suite): invariance to orthogonal
+transforms and isotropic scaling, unit diagonal, and near-zero similarity for
+independent features when the sample count dominates the feature dimension.
+CropSSL exposes three entry points: `linear_cka` (default; the standard
+linear kernel), `rbf_cka` (Gaussian kernel with median-heuristic bandwidth),
+and `cka_similarity_matrix` / `domain_shift_report` for pairwise comparison
+across any number of representations (e.g. lab → field → after-LoRA). This
+is the diagnosis tool the real-dataset stage applies to PlantVillage →
+PlantDoc: encode the same samples with one encoder, feed both domains to
+`linear_cka`, and read the domain-gap score directly.
+
 ### Calibration: Confidence You Can Trust
 
 Accuracy is only half the story — a field diagnosis must also say *how sure
@@ -585,6 +614,7 @@ from crop_ssl.models.adaptation.domain_adapter import DomainAdaptationModule
 from crop_ssl.evaluation.grad_cam import GradCAM
 from crop_ssl.evaluation.tta import TestTimeAugmentation
 from crop_ssl.evaluation.calibration import TemperatureScaling
+from crop_ssl.evaluation.cka import linear_cka, cka_similarity_matrix, domain_shift_report
 
 # Create SSL model
 model = create_ssl_model("dinov2", backbone="vit_small", embed_dim=384)
@@ -619,6 +649,17 @@ result = tta.predict(x)  # {'pred': ..., 'confidence': ..., 'logits': ...}
 ts = TemperatureScaling()
 ts.calibrate(model_logits, labels)
 calibrated = ts.forward(model_logits)  # Scaled logits
+
+# CKA representation-similarity diagnosis (the "domain gap" measure)
+# 1.0 = the two feature spaces encode the same information (up to orthogonal
+#      transform); ~0 = essentially unrelated. Compare lab vs field embeddings
+#      of the same samples to quantify how much the shift moved the features.
+lab_feats = model.encode(lab_images)    # (N, D)  -- paired with field below
+fld_feats = model.encode(field_images)  # (N, D)
+sim = linear_cka(lab_feats, fld_feats)   # domain-gap score in [0, 1]
+mat = cka_similarity_matrix({"lab": lab_feats, "field": fld_feats,
+                             "adapted": adapted_feats})   # pairwise matrix
+report = domain_shift_report({"lab": lab_feats, "field": fld_feats})
 ```
 
 ---
@@ -831,7 +872,7 @@ The full API surface is also browsable live at `http://localhost:8000/docs`.
 
 ```
 CropSSL/
-├── .github/workflows/ci.yml       # CI/CD: syntax + imports + 217 tests + Docker
+├── .github/workflows/ci.yml       # CI/CD: syntax + imports + 224 tests + Docker
 ├── android/                       # Native Android WebView wrapper (APK)
 ├── crop_ssl/
 │   ├── models/
@@ -874,6 +915,7 @@ CropSSL/
 │   │   ├── ensemble.py                # Weighted model ensembling
 │   │   ├── active_learning.py         # Uncertainty sampling strategies
 │   │   ├── feature_viz.py             # t-SNE / UMAP visualization
+│   │   ├── cka.py                     # CKA representation-similarity analysis
 │   │   └── cross_domain_eval.py       # Cross-domain evaluation suite
 │   ├── backend/
 │   │   ├── api.py                     # FastAPI (56 routes, incl. /predict + ONNX export)
@@ -900,7 +942,7 @@ CropSSL/
 │   │   ├── logging.py                 # Structured logging
 │   │   └── reproducibility.py         # Seed-based determinism
 │   └── tests/
-│       └── test_all.py                # 217 tests (all passing)
+│       └── test_all.py                # 224 tests (all passing)
 ├── assets/logo.png
 ├── requirements.txt
 ├── pyproject.toml
@@ -948,8 +990,8 @@ Every push to `main` runs three automated checks via GitHub Actions
 
 | Job | What runs |
 |-----|-----------|
-| **checks** | `compileall` syntax gate + import smoke-test of all 50 modules + secret scan |
-| **test** | The full **217-test** suite (`pytest crop_ssl/tests/test_all.py`) |
+| **checks** | `compileall` syntax gate + import smoke-test of all 51 modules + secret scan |
+| **test** | The full **224-test** suite (`pytest crop_ssl/tests/test_all.py`) |
 | **docker** | Verifies the Docker image builds (on `main`) |
 
 Badge status shows directly under the project title. Run everything locally

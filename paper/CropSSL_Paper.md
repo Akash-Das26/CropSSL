@@ -54,7 +54,9 @@ The framework has four phases, each of which can be run or skipped independently
 1. **SSL pre-training** on unlabeled source images (PlantVillage by default).
 2. **Few-shot adaptation** on a small labeled target set (field images).
 3. **Optional domain alignment** (DANN, MMD, or CORAL) when a labeled or unlabeled target sample is available.
-4. **Cross-domain evaluation** — accuracy, macro-F1, expected calibration error (ECE), false-discovery rate, Grad-CAM, and embedding visualizations — across fourteen datasets spanning lab and field conditions.
+4. **Cross-domain evaluation** — accuracy, macro-F1, expected calibration error (ECE), false-discovery rate, Grad-CAM, embedding visualizations, and CKA representation-similarity analysis — across fourteen datasets spanning lab and field conditions.
+
+Beyond accuracy, the framework ships two *diagnostic* tools that make the domain gap measurable rather than inferred. **CKA (Centered Kernel Alignment) [11]** compares the geometry of two representations sample-by-sample and returns a score in [0, 1] — 1.0 means the source and target feature spaces encode the same relational structure (equivalent up to orthogonal transform and scaling), ~0 means they are essentially unrelated. Applying `linear_cka` to the same encoder's embeddings of source and target images quantifies how far the shift actually moved the features, which is exactly the middle term of the Ben-David bound in Section 2.3. The implementation is verified against its theoretical properties (orthogonal- and scale-invariance, unit diagonal, near-zero similarity for independent features) by the test suite. On the controlled synthetic experiment of Section 5.4, instance-level CKA is deliberately not reported: the toy source contains only one distinct image per class, so per-instance Gram geometry is degenerate and the score would be uninformative — CKA is the diagnosis tool for the real, instance-diverse domain pairs (PlantVillage → PlantDoc) in the real-data stage. Grad-CAM heatmaps complement the score with *where* the model looks on a single image.
 
 The design is deliberately modular: each phase is a separate script with a stable interface, so experiments can be composed without reimplementing.
 
@@ -278,9 +280,10 @@ The framework we built to test this — four SSL methods on a shared backbone, f
 8. Hu, E. J., et al. (2022). LoRA: Low-rank adaptation of large language models. *ICLR*.
 9. Hughes, D. P., & Salathé, M. (2015). An open access repository of images on plant health to enable the development of mobile disease diagnostics. *arXiv:1511.08060*.
 10. Singh, D., et al. (2020). PlantDoc: A dataset for visual plant disease detection. *ACM India Joint International Conference on Data Science and Management of Data (CoDS-COMAD)*.
-11. Abadi, M., et al. (2015). TensorFlow: Large-scale machine learning on heterogeneous distributed systems. (For the Cassava Leaf Disease dataset provenance.)
-12. Ben-David, S., Blitzer, J., Crammer, K., Kulesza, A., Pereira, F., & Vaughan, J. W. (2010). A theory of learning from different domains. *Machine Learning, 79*(1–2), 151–175.
-13. Ganin, Y., & Lempitsky, V. (2015). Unsupervised domain adaptation by backpropagation. *ICML*.
-14. Long, M., et al. (2015). Learning transferable features with deep adaptation networks (MMD). *ICML*.
-15. Sun, B., & Saenko, K. (2016). Deep CORAL: Correlation alignment for deep domain adaptation. *ECCV*.
-16. Selvaraju, R. R., et al. (2017). Grad-CAM: Visual explanations from deep networks via gradient-based localization. *ICCV*.
+11. Kornblith, S., Norouzi, M., Lee, H., & Hinton, G. (2019). Similarity of Neural Network Representations Revisited. *ICML*.
+12. Abadi, M., et al. (2015). TensorFlow: Large-scale machine learning on heterogeneous distributed systems. (For the Cassava Leaf Disease dataset provenance.)
+13. Ben-David, S., Blitzer, J., Crammer, K., Kulesza, A., Pereira, F., & Vaughan, J. W. (2010). A theory of learning from different domains. *Machine Learning, 79*(1–2), 151–175.
+14. Ganin, Y., & Lempitsky, V. (2015). Unsupervised domain adaptation by backpropagation. *ICML*.
+15. Long, M., et al. (2015). Learning transferable features with deep adaptation networks (MMD). *ICML*.
+16. Sun, B., & Saenko, K. (2016). Deep CORAL: Correlation alignment for deep domain adaptation. *ECCV*.
+17. Selvaraju, R. R., et al. (2017). Grad-CAM: Visual explanations from deep networks via gradient-based localization. *ICCV*.
