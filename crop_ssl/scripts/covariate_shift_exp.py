@@ -181,6 +181,41 @@ def adapt(backbone, method, s_x, s_y, q_x, q_y, steps=100, lr=5e-3):
     return acc, adapter.get_trainable_params()
 
 
+def calibration_diagnosis(backbone, src_x, src_y, tgt_x, tgt_y) -> dict:
+    """Does lab-calibrated confidence stay calibrated under the field shift?
+
+    Fits a logistic head on LAB embeddings, learns a temperature on LAB
+    logits (TemperatureScaling), then measures the Expected Calibration
+    Error of those lab-calibrated predictions on FIELD data. High field ECE
+    = confidence that does not transfer across the shift (overconfident
+    errors in the field).
+
+    Returns:
+        Dict with 'T', 'ece_field_raw', 'ece_field_cal', 'acc_field'.
+    """
+    from sklearn.linear_model import LogisticRegression
+    from crop_ssl.evaluation.calibration import TemperatureScaling
+
+    src_f = encode(backbone, src_x)
+    tgt_f = encode(backbone, tgt_x)
+    clf = LogisticRegression(max_iter=800, C=1.0, random_state=0)
+    clf.fit(src_f.numpy(), src_y.numpy())
+    lab_logits = torch.from_numpy(clf.predict_log_proba(src_f.numpy())).float()
+    fld_logits = torch.from_numpy(clf.predict_log_proba(tgt_f.numpy())).float()
+
+    ts = TemperatureScaling(init_temperature=1.5)
+    cal = ts.calibrate(lab_logits, src_y)
+    ece_raw = ts._compute_ece(fld_logits, tgt_y)
+    ece_cal = ts._compute_ece(ts.forward(fld_logits), tgt_y)
+    acc = float((clf.predict(tgt_f.numpy()) == tgt_y.numpy()).mean())
+    return {
+        "temperature": float(cal["temperature"]),
+        "ece_field_raw": ece_raw,
+        "ece_field_cal": ece_cal,
+        "acc_field": acc,
+    }
+
+
 def run_table(backbone, tag, k: int = 5, seed: int = 0) -> dict:
     """Full lab→field table for one backbone."""
     set_seed(seed)
@@ -197,6 +232,11 @@ def run_table(backbone, tag, k: int = 5, seed: int = 0) -> dict:
     # real structured domain gaps (PlantVillage -> PlantDoc) where instance
     # diversity is genuine -- see crop_ssl.evaluation.cka.
 
+    # Calibration transfer diagnosis: does lab-calibrated confidence survive
+    # the shift? (ECE on FIELD with a temperature learned on LAB.)
+    cal = calibration_diagnosis(backbone, src_x, src_y, tgt_x, tgt_y)
+    print(f"  field ECE (lab-calibrated)          : {cal['ece_field_cal']*100:5.1f}%")
+
     rng = np.random.RandomState(0)
     shots, query = [], []
     for c in range(N_CLS):
@@ -210,6 +250,10 @@ def run_table(backbone, tag, k: int = 5, seed: int = 0) -> dict:
     q_x, q_y = tgt_x[q_idx], tgt_y[q_idx]
 
     row = {"tag": tag, "k_shots": k, "query_size": int(len(q_idx))}
+    row["ece_field_raw"] = cal["ece_field_raw"]
+    row["ece_field_cal"] = cal["ece_field_cal"]
+    row["temperature"] = cal["temperature"]
+    row["acc_field"] = cal["acc_field"]
     row["naive"] = linear_head(src_f, src_y, tgt_f[q_idx], tgt_y[q_idx])
     print(f"  naive (lab head -> field)          : {row['naive']*100:5.1f}%")
     for method in ["linear", "lora", "prototypical"]:
@@ -273,6 +317,17 @@ def main():
             print(f"{r['tag']:<15}{r['naive']*100:>7.1f}%{r['linear']*100:>8.1f}%"
                   f"{r['lora']*100:>8.1f}%{r['prototypical']*100:>8.1f}%"
                   f"{r['oracle']*100:>8.1f}%")
+    print("\nCalibration transfer (temperature learned on LAB, ECE on FIELD):")
+    print(f"{'backbone':<15}{'T':>7}{'field ECE raw':>15}{'field ECE cal':>16}{'field acc':>11}")
+    # rows alternate [ssl_k1, rnd_k1, ssl_k2, rnd_k2, ...] -> first row of each
+    # backbone via stride slicing (robust to any number of k values).
+    seen = set()
+    for r in rows:
+        if r["tag"] in seen:
+            continue
+        seen.add(r["tag"])
+        print(f"{r['tag']:<15}{r['temperature']:>7.3f}{r['ece_field_raw']*100:>14.1f}%"
+              f"{r['ece_field_cal']*100:>15.1f}%{r['acc_field']*100:>10.1f}%")
 
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)

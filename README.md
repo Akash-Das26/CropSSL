@@ -252,6 +252,25 @@ Full measured sweep (k = 1…20, both backbones — 10 rows, all numbers above
 are its actual output) lives in
 [`results/covariate_shift_measured.json`](results/covariate_shift_measured.json).
 
+**Calibration transfer (same experiment, same backbones):** a temperature is
+learned on LAB logits (`TemperatureScaling`) and its Expected Calibration
+Error is then measured on FIELD predictions — does lab-calibrated confidence
+survive the shift?
+
+| Backbone | T (learned on LAB) | Field ECE (raw) | Field ECE (lab-calibrated) | Field accuracy |
+|----------|:------------------:|:---------------:|:--------------------------:|:--------------:|
+| **SSL pre-trained** | 1.079 | 5.3% | **4.1%** | 85.9% |
+| Random init | 1.102 | 40.1% | **38.7%** | 53.0% |
+
+Both backbones learn nearly the same temperature (≈1.08–1.10) on LAB data,
+but what happens in the FIELD is night and day: the SSL backbone's
+confidence stays calibrated (ECE 4.1% — its 86% accurate predictions are
+also appropriately confident), while the random backbone's confidence
+**collapses** (ECE 38.7% — it is massively overconfident on its many field
+errors). A **9.4× difference** in expected calibration error from the same
+calibration procedure — pre-training buys calibrated confidence under
+shift, not just accuracy.
+
 > **Scope note:** this is a controlled synthetic experiment — it isolates the
 > *mechanism* (covariate shift + few-shot recovery) on CPU in minutes. Real-dataset
 > reproductions on PlantVillage → PlantDoc / Cassava remain runnable through

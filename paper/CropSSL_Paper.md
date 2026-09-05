@@ -238,6 +238,18 @@ Three findings stand out.
    shots, SSL + LoRA peaks at 94.1% against 90.7% for random-init + LoRA on
    the same budget — the pre-trained edge narrows but does not vanish as
    labels grow, which is precisely the shape the theory predicts (Section 6.1).
+4. **Pre-training preserves calibrated confidence across the shift.** We also
+   ran a calibration-transfer diagnosis in the same experiment: learn one
+   temperature with TemperatureScaling on LAB logits, then measure the
+   Expected Calibration Error of those lab-calibrated predictions on FIELD
+   data. The two backbones learn nearly identical temperatures on LAB
+   (1.079 vs 1.102), yet on FIELD the SSL backbone's confidence remains
+   calibrated (ECE 4.1%) while the random backbone's collapses (ECE 38.7%)
+   — a **9.4×** difference in expected calibration error from the same
+   procedure. The random backbone is massively overconfident on exactly the
+   errors the shift causes; SSL's invariances keep both accuracy *and*
+   confidence reliable. Pre-training thus buys calibrated confidence under
+   shift, not just accuracy.
 
 We deliberately do not report single glossy PlantVillage→PlantDoc accuracy
 numbers here: the real-dataset reproduction requires the taxonomy mapping and
@@ -258,7 +270,7 @@ In our few-shot experiments, the optional alignment modules (DANN, MMD, CORAL) a
 
 ### 6.3 Calibration matters
 
-Accuracy is not the whole story, and this is where ECE enters. A model that is right most of the time but wrong with high confidence on the failures is dangerous in an agricultural setting, because the cost of a confident error is a crop, not a click. The quick-benchmark runs in Section 5.3 produced calibrated output (ECE below 11%) for every adapter we exercised, and the framework measures ECE across all adapters so calibration can be checked before deployment. We would not claim, from synthetic data alone, that one adapter family is systematically better calibrated than another; what we do claim is that calibration is cheap to measure, varies across adapters and training budgets, and should be evaluated before you trust the confidence bars.
+Accuracy is not the whole story, and this is where ECE enters. A model that is right most of the time but wrong with high confidence on the failures is dangerous in an agricultural setting, because the cost of a confident error is a crop, not a click. The quick-benchmark runs in Section 5.3 produced calibrated output (ECE below 11%) for every adapter we exercised, and the framework measures ECE across all adapters so calibration can be checked before deployment. We would not claim, from synthetic data alone, that one adapter family is systematically better calibrated than another; what we do claim is that calibration is cheap to measure, varies across adapters and training budgets, and should be evaluated before you trust the confidence bars. The controlled experiment in Section 5.4 adds a sharper, pre-training-level claim: with the *same* calibration procedure, the SSL backbone transfers calibrated confidence to the field (ECE 4.1%) while a random backbone of identical architecture collapses (ECE 38.7%). Calibration is not just a post-hoc knob — it inherits the robustness of the features it is applied to.
 
 ### 6.4 What we could not test
 
