@@ -12,10 +12,10 @@
   <img src="https://img.shields.io/badge/Tests-224%20✅-brightgreen?style=for-the-badge" alt="Tests">
   <img src="https://img.shields.io/badge/SSL-4%20Methods-blueviolet?style=for-the-badge" alt="SSL">
   <img src="https://img.shields.io/badge/Datasets-14-teal?style=for-the-badge" alt="Datasets">
-  <img src="https://img.shields.io/badge/API-56%20Endpoints-orange?style=for-the-badge" alt="API">
+  <img src="https://img.shields.io/badge/API-52%20Endpoints-orange?style=for-the-badge" alt="API">
   <img src="https://img.shields.io/badge/CI-GitHub%20Actions-brightgreen?style=for-the-badge&logo=githubactions&logoColor=white" alt="CI">
-  <img src="https://img.shields.io/badge/Lines-18K+-gray?style=for-the-badge" alt="Lines">
-  <img src="https://img.shields.io/badge/Files-66-blue?style=for-the-badge" alt="Files">
+  <img src="https://img.shields.io/badge/Lines-19K+-gray?style=for-the-badge" alt="Lines">
+  <img src="https://img.shields.io/badge/Files-69-blue?style=for-the-badge" alt="Files">
   <img src="https://img.shields.io/badge/Mobile-PWA%20Android-brightgreen?style=for-the-badge" alt="Mobile">
 </p>
 
@@ -758,17 +758,24 @@ CropSSL ships two ways to run on Android:
 > `/models`, `/system/automation-status`) so no credentials are needed on
 > the phone. For a field deployment, put the API behind your network/VPN.
 
-### Backend API (56 Routes)
+### Backend API (52 Routes)
+
+> **52** registered API endpoints (deterministic `APIRoute` count). `app.routes`
+> additionally holds the 4 auto-generated docs routes (`/openapi.json`, `/docs`,
+> `/docs/oauth2-redirect`, `/redoc`) plus an **optional** `/app` static mount that
+> exists only when the mobile PWA build is present — so the raw route list is
+> `52 + 4 (+1 mobile)`, and the endpoint count above is the stable figure.
 
 The full API surface is also browsable live at `http://localhost:8000/docs`.
 
 <details>
-<summary><strong>Core Endpoints (7)</strong></summary>
+<summary><strong>Core Endpoints (8)</strong></summary>
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/` | GET | API root info |
 | `/health` | GET | System health check |
+| `/health/mobile` | GET | Mobile PWA availability probe |
 | `/system/metrics` | GET | CPU, memory, disk usage |
 | `/system/automation-status` | GET | Full automation module status |
 | `/datasets` | GET | List all 14 datasets |
@@ -788,7 +795,7 @@ The full API surface is also browsable live at `http://localhost:8000/docs`.
 </details>
 
 <details>
-<summary><strong>Model Management (7)</strong></summary>
+<summary><strong>Model Management (5)</strong></summary>
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -798,6 +805,13 @@ The full API surface is also browsable live at `http://localhost:8000/docs`.
 | `/models/{name}/load` | POST | Load a demo SSL model by name |
 | `/models/{name}` | DELETE | Unload a model from memory |
 
+</details>
+
+<details>
+<summary><strong>Model Registry (5)</strong></summary>
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
 | `/registry/register` | POST | Register new model version |
 | `/registry/deploy` | POST | Deploy model to production |
 | `/registry/rollback` | POST | Rollback to previous version |
@@ -867,12 +881,13 @@ The full API surface is also browsable live at `http://localhost:8000/docs`.
 </details>
 
 <details>
-<summary><strong>Pipeline (4)</strong></summary>
+<summary><strong>Pipeline (5)</strong></summary>
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/pipeline/create` | POST | Create pipeline |
 | `/pipeline/list` | GET | List pipelines |
+| `/pipeline/compare` | GET | Compare two SSL methods/backbones |
 | `/pipeline/{id}` | GET | Get pipeline status |
 | `/pipeline/{id}/step/{idx}` | POST | Execute pipeline step |
 
@@ -945,7 +960,7 @@ CropSSL/
 │   │   ├── cka.py                     # CKA representation-similarity analysis
 │   │   └── cross_domain_eval.py       # Cross-domain evaluation suite
 │   ├── backend/
-│   │   ├── api.py                     # FastAPI (56 routes, incl. /predict + ONNX export)
+│   │   ├── api.py                     # FastAPI (52 routes, incl. /predict + ONNX export)
 │   │   ├── auth.py                    # JWT authentication
 │   │   └── automation.py              # Registry, webhooks, A/B, drift, audit
 │   ├── frontend/
