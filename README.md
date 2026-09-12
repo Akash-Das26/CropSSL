@@ -11,7 +11,7 @@
   <img src="https://img.shields.io/badge/PyTorch-2.0+-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white" alt="PyTorch">
   <img src="https://img.shields.io/badge/Tests-224%20✅-brightgreen?style=for-the-badge" alt="Tests">
   <img src="https://img.shields.io/badge/SSL-4%20Methods-blueviolet?style=for-the-badge" alt="SSL">
-  <img src="https://img.shields.io/badge/Datasets-14-teal?style=for-the-badge" alt="Datasets">
+  <img src="https://img.shields.io/badge/Datasets-13-teal?style=for-the-badge" alt="Datasets">
   <img src="https://img.shields.io/badge/API-52%20Endpoints-orange?style=for-the-badge" alt="API">
   <img src="https://img.shields.io/badge/CI-GitHub%20Actions-brightgreen?style=for-the-badge&logo=githubactions&logoColor=white" alt="CI">
   <img src="https://img.shields.io/badge/Lines-19K+-gray?style=for-the-badge" alt="Lines">
@@ -97,7 +97,7 @@ Measured: SSL pre-trained (MoCo v3 / ViT-S) vs random-init — same architecture
 │               ▼                                     ▼                        │
 │   Phase 3: Domain Adaptation          Phase 4: Cross-Domain Evaluation      │
 │   ┌──────────────────────┐           ┌──────────────────────────┐           │
-│   │  DANN │ MMD │ CORAL  │──────────▶│  14 datasets benchmarked │           │
+│   │  DANN │ MMD │ CORAL  │──────────▶│  13 datasets benchmarked │           │
 │   │  (optional alignment) │           │  Accuracy, F1, ECE, FDR  │           │
 │   └──────────────────────┘           │  GradCAM, Confusion Mat  │           │
 │                                      │  t-SNE, UMAP             │           │
@@ -335,7 +335,9 @@ test_batch_size_scaling             ✅    test_lora_training_speed         ✅
 
 ---
 
-## 📦 14 Datasets
+## 📦 13 Datasets
+
+All 13 are registered in `DATASET_REGISTRY` (and returned by `GET /datasets`):
 
 | # | Dataset | Domain | Images | Classes | Source |
 |---|---------|--------|-------:|--------:|--------|
@@ -352,9 +354,12 @@ test_batch_size_scaling             ✅    test_lora_training_speed         ✅
 | 11 | **iCassava2019** | Ugandan field | 5,656 | 5 | Kaggle |
 | 12 | **NewPlantDiseases** | Augmented | 87,848 | 38 | Large-scale |
 | 13 | **DomainNet-Plant** | Multi-domain | Custom | 12 | 5 domain types |
-| 14 | **CrossDomainDataset** | Paired | Varies | Varies | Source→Target pairs |
 
-> **All 14 datasets** include synthetic fallback generation for testing without downloading. PlantVillage auto-downloads via HuggingFace on first use.
+> **Additionally:** `CrossDomainDataset` is not a registered dataset — it is a
+> paired source→target wrapper that composes any two of the 13 above for
+> domain-adaptation evaluation, so it is deliberately absent from `GET /datasets`.
+
+> **All 13 datasets** include synthetic fallback generation for testing without downloading. PlantVillage auto-downloads via HuggingFace on first use.
 
 ---
 
@@ -778,7 +783,7 @@ The full API surface is also browsable live at `http://localhost:8000/docs`.
 | `/health/mobile` | GET | Mobile PWA availability probe |
 | `/system/metrics` | GET | CPU, memory, disk usage |
 | `/system/automation-status` | GET | Full automation module status |
-| `/datasets` | GET | List all 14 datasets |
+| `/datasets` | GET | List all 13 registered datasets |
 | `/models` | GET | List available models |
 | `/classes` | GET | Disease class names |
 
@@ -931,7 +936,7 @@ CropSSL/
 │   │       ├── few_shot_adapter.py    # Linear, LoRA, ProtoNet
 │   │       └── domain_adapter.py      # MMD, CORAL, DANN
 │   ├── data/
-│   │   ├── datasets/                  # 14 dataset loaders
+│   │   ├── datasets/                  # 13 dataset loaders + paired wrapper
 │   │   │   ├── plantvillage.py        # Auto-download from HuggingFace
 │   │   │   ├── plantdoc.py            # Real-world field photos
 │   │   │   ├── cassava_leaf.py        # Farmer phone images
