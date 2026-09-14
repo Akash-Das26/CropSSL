@@ -9,7 +9,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/PyTorch-2.0+-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white" alt="PyTorch">
-  <img src="https://img.shields.io/badge/Tests-224%20✅-brightgreen?style=for-the-badge" alt="Tests">
+  <img src="https://img.shields.io/badge/Tests-248%20✅-brightgreen?style=for-the-badge" alt="Tests">
   <img src="https://img.shields.io/badge/SSL-4%20Methods-blueviolet?style=for-the-badge" alt="SSL">
   <img src="https://img.shields.io/badge/Datasets-13-teal?style=for-the-badge" alt="Datasets">
   <img src="https://img.shields.io/badge/API-52%20Endpoints-orange?style=for-the-badge" alt="API">
@@ -278,7 +278,7 @@ shift, not just accuracy.
 
 ---
 
-## 🧪 Test Suite: 224/224 Passing
+## 🧪 Test Suite: 248/248 Passing
 
 ```
 pytest crop_ssl/tests/test_all.py
@@ -616,6 +616,158 @@ python3 -m crop_ssl.scripts.download_data --synthetic
 python3 -m pytest crop_ssl/tests/test_all.py -v
 ```
 
+### Prediction Feedback Loop
+
+Every `POST /predict` response now includes a `prediction_id`. Send ground
+truth back to close the loop — it feeds the auto-retrain monitor and the
+drift detector automatically (no more manual `/auto-retrain/record` and
+`/drift/record` calls):
+
+```bash
+RESP=$(curl -s -X POST http://localhost:8000/predict -F "file=@leaf.jpg")
+PID=$(echo "$RESP" | python3 -c 'import sys,json; print(json.load(sys.stdin)["prediction_id"])')
+
+curl -X POST http://localhost:8000/feedback \
+     -H 'Content-Type: application/json' \
+     -d "{\"prediction_id\": \"$PID\", \"correct\": false, \"confidence\": 0.72}"
+# → {"status": "recorded", ...}; then watch /auto-retrain/stats and /drift/check
+```
+
+Prediction IDs live in an in-memory bounded log (10,000 entries, oldest
+evicted); if a log entry has already expired, pass `predicted_class` (and
+optionally `model_used`) explicitly. `GET /system/latency` reports per-route
+p50/p95 latency for capacity monitoring. Machine clients can authenticate
+with a static key: set `CROPSSL_API_KEY` on the server and send
+`X-API-Key: <key>` (or `Authorization: ApiKey <key>`).
+
+### SupCon Loss (supervised contrastive pre-training)
+
+When pair labels are available, SimCLR pre-training can use supervised
+contrastive loss (Khosla et al., 2020) via the existing factory:
+
+```python
+model = create_ssl_model("simclr", backbone="vit_small", embed_dim=384, loss="supcon")
+result = model(view_1, view_2, labels)   # labels: (B,) class ids for the batch
+```
+
+Default remains `loss="nt_xent"` (fully backward-compatible). Trade-off:
+SupCon needs labels per batch and same-label pairs to be present — anchors
+without positives are excluded from the loss.
+
+### Resumable Benchmarks
+
+Interrupted benchmark sweeps can skip completed cells:
+
+```bash
+python3 -m crop_ssl.scripts.compare_methods --quick --resume
+```
+
+Cached cells are reused only when the stored run config (backbone, device,
+epochs) matches exactly; partial results are merged and rewritten to
+`benchmark_results.json`.
+
+### Few-Shot k-NN Evaluation from the API & Dashboard
+
+The training-free adaptation from `scripts/onnx_knn.py` is now also a backend
+route and a dashboard tab — all three surfaces share the same split and
+classifier code, so they always report identical numbers:
+
+```bash
+# Nearest-centroid (k=0) or k-NN vote (k>0) over SSL embeddings
+curl -X POST http://localhost:8000/eval/knn \
+     -H 'Content-Type: application/json' \
+     -d '{"method": "simclr", "backbone": "vit_small", "num_classes": 5, "shots": 5, "k": 0}'
+# → {"mode": "nearest-centroid", "accuracy": ..., "num_support": 25,
+#    "num_query": ..., "per_class": [...], "embedding_source": "registry:simclr_vit_small"}
+```
+
+- `data_root` (default `./data`) expects a `train/<class>/` image layout;
+  missing data falls back to the same structured synthetic split as the CLI.
+- Embeddings come from an already-loaded model (`registry:<name>`) when one
+  matches method/backbone, otherwise a transient model is built and cached
+  (bounded to 2 — a transient ViT-L is ~1.2 GB on CPU).
+- Runs synchronously like `/predict`; a `vit_large` eval on CPU can take tens
+  of seconds.
+- In the Streamlit dashboard: **Analysis → 🧮 Few-Shot k-NN** — pick method,
+  backbone, classes, shots, k, and data root; per-class accuracy is charted.
+
+### Offline On-Device k-NN (Mobile PWA)
+
+The mobile PWA can now run inference **fully offline** — no server, no signal:
+
+1. In the PWA's **Engine** tab, export a model to ONNX, then in the
+   **📴 Offline k-NN** card set the number of classes and tap
+   **Build k-NN Bundle** (server-side `POST /models/{name}/knn-bundle`).
+2. Tap **Load for Offline Use** — the PWA caches the pinned onnxruntime-web
+   runtime (WASM), the ONNX backbone, and the bundle JSON, then classifies
+   on-device.
+3. With a bundle loaded, `Scan` automatically falls back to on-device
+   inference whenever the backend is unreachable (results are tagged
+   `ANALYZED · OFFLINE`).
+
+```bash
+curl -X POST http://localhost:8000/models/simclr_vit_small/knn-bundle \
+     -H 'Content-Type: application/json' \
+     -d '{"num_classes": 5, "shots": 5, "k": 0}'
+# → {"status": "built", "path": "model_exports/simclr_vit_small-knn-bundle.json",
+#    "size_mb": ..., "mode": "nearest-centroid", "checked_with": ...}
+```
+
+- The bundle carries class centroids, raw support embeddings, class names,
+  and the preprocessing contract (224×224 + ImageNet mean/std) — the phone
+  reproduces `scripts/onnx_knn.py`'s exact math (cosine match, L2 at
+  classify time).
+- Embeddings are computed with the **same backbone flavor the bundle
+  exports** (`encoder.forward_features`): via onnxruntime when installed,
+  otherwise the PyTorch backbone (results are identical by construction).
+- Bundle size scales with classes × shots × embed_dim (a 5-class / 5-shot
+  ViT-S bundle is well under 1 MB alongside the ~90 MB ONNX).
+- Offline accuracy equals the nearest-centroid ceiling of the baked support
+  set — it does **not** match a trained-head model; trade quality for
+  connectivity independence.
+- `k > 0` is supported server-side; the PWA currently ships the
+  nearest-centroid path (k-NN vote is in `knn.js`'s `classifySync` for
+  future UI use).
+
+### Auth & Deployment (production hardening)
+
+Sensitive routes — model registry writes (`/registry/*`), checkpoint upload,
+model load/delete, retrain (`/training/start`), webhook registration,
+A/B test create/stop, and pipeline create/step — **require a Bearer token**.
+Inference routes (`/predict`, `/predict/batch`, `/models/{name}/export`),
+`/health`, `/datasets`, `/classes`, and monitor/read endpoints stay public
+for the mobile PWA.
+
+```bash
+# 1. Set a real secret (REQUIRED — the server refuses to issue/verify
+#    tokens without it; there is no default anymore)
+export CROPSSL_SECRET="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+
+# 2. Start the backend and log in
+python3 -m crop_ssl.backend.api
+curl -X POST http://localhost:8000/auth/login \
+     -H 'Content-Type: application/json' -d '{"username": "admin", "password": "admin123"}'
+# → {"token": "...", ...}
+
+# 3. Call a protected route with the token
+curl -X POST "http://localhost:8000/registry/register?model_name=my_model" \
+     -H "Authorization: Bearer <token>"
+```
+
+- **Passwords are salted PBKDF2** (200k iterations). Legacy unsalted hashes
+  are verified and transparently upgraded on the next successful login.
+- **Local dev bypass:** `CROPSSL_ALLOW_ANONYMOUS=1` treats requests without
+  an `Authorization` header as admin. Never enable it on a reachable network.
+- **Deployed defaults:** change `admin/admin123` immediately
+  (`POST /auth/register` + delete `crop_ssl/.users.json`, or call
+  `change_password`), and point the Streamlit dashboard at your backend URL
+  via `BACKEND_URL` in `crop_ssl/frontend/app.py` (defaults to
+  `http://localhost:8000`).
+- Requests/responses carry `X-Request-ID` for log correlation (client-supplied
+  IDs are honored). `/health` and `/` return **503** when no models are loaded,
+  so orchestrators can stop routing traffic to a dead backend.
+- For numerical ONNX verification install the extra: `pip install -e ".[onnx]"`.
+
 ### Serve a Real Trained Model (not demo weights)
 
 The web UI and mobile app run on demo weights by default so everything works
@@ -932,7 +1084,7 @@ The full API surface is also browsable live at `http://localhost:8000/docs`.
 
 ```
 CropSSL/
-├── .github/workflows/ci.yml       # CI/CD: syntax + imports + 224 tests + Docker
+├── .github/workflows/ci.yml       # CI/CD: syntax + imports + 248 tests + Docker
 ├── android/                       # Native Android WebView wrapper (APK)
 ├── crop_ssl/
 │   ├── models/
@@ -978,7 +1130,7 @@ CropSSL/
 │   │   ├── cka.py                     # CKA representation-similarity analysis
 │   │   └── cross_domain_eval.py       # Cross-domain evaluation suite
 │   ├── backend/
-│   │   ├── api.py                     # FastAPI (52 routes, incl. /predict + ONNX export)
+│   │   ├── api.py                     # FastAPI (57 routes, incl. /predict + ONNX export)
 │   │   ├── auth.py                    # JWT authentication
 │   │   └── automation.py              # Registry, webhooks, A/B, drift, audit
 │   ├── frontend/
@@ -1002,7 +1154,7 @@ CropSSL/
 │   │   ├── logging.py                 # Structured logging
 │   │   └── reproducibility.py         # Seed-based determinism
 │   └── tests/
-│       └── test_all.py                # 224 tests (all passing)
+│       └── test_all.py                # 248 tests (all passing)
 ├── assets/logo.png
 ├── requirements.txt
 ├── pyproject.toml
@@ -1051,7 +1203,7 @@ Every push to `main` runs three automated checks via GitHub Actions
 | Job | What runs |
 |-----|-----------|
 | **checks** | `compileall` syntax gate + import smoke-test of all 51 modules + secret scan |
-| **test** | The full **224-test** suite (`pytest crop_ssl/tests/test_all.py`) |
+| **test** | The full **248-test** suite (`pytest crop_ssl/tests/test_all.py`) |
 | **docker** | Verifies the Docker image builds (on `main`) |
 
 Badge status shows directly under the project title. Run everything locally

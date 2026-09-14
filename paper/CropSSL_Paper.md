@@ -1,6 +1,6 @@
 # Cross-Domain Robustness of Self-Supervised Vision Foundation Models for Crop Disease Detection: A Few-Shot Field Adaptation Approach
 
-**Arghya Sarkar**  
+**Arghya Bose**  
 *Independent research project — CropSSL framework*
 
 ---

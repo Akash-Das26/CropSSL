@@ -1,0 +1,24 @@
+# Keep the image small and secret-free: never bake these into the build context
+venv/
+.venv/
+env/
+outputs/
+model_exports/
+results/
+data/
+checkpoints/
+*.pth
+*.onnx
+.users.json
+__pycache__/
+*.pyc
+.pytest_cache/
+.git/
+.github/
+android/
+paper/
+assets/
+Dockerfile
+docker-compose.yml
+README.md
+install.sh
