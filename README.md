@@ -552,6 +552,25 @@ pipeline is exercised end-to-end by the test suite
 
 ### Install
 
+**Option A — one-line deploy** (clone + venv + deps + editable install + import smoke test,
+safe to re-run — updates an existing clone and reuses the venv):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/officialarghya29/CropSSL/main/install.sh | bash
+```
+
+Already have the repo? Both forms work from inside a checkout:
+
+```bash
+bash install.sh          # install in place (./venv)
+bash install.sh ~/crops  # fresh install at a target directory
+```
+
+> ⚠️ The venv can't stay activated after `curl | bash` — activate it with
+> `cd CropSSL && source venv/bin/activate` when the script finishes (it prints this reminder).
+
+**Option B — manual** (exactly the steps `install.sh` performs):
+
 ```bash
 git clone https://github.com/officialarghya29/CropSSL.git
 cd CropSSL
@@ -560,7 +579,8 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
-> 💡 All commands use `python3`. On most systems `python` is an alias that also works —
+> 💡 Both options take several minutes on first run (torch is a large download).
+> All commands use `python3`. On most systems `python` is an alias that also works —
 > if you get `python: command not found`, just use `python3`.
 
 ### Run the Pipeline (all verified end-to-end)
@@ -730,13 +750,6 @@ CropSSL ships two ways to run on Android:
 2. **Native APK** — a thin `android/` WebView wrapper that loads the same PWA
    (camera + gallery picker wired up). Build it in Android Studio; no
    external Gradle dependencies.
-
-```bash
-# Backend already running on your PC at port 8000.
-# On your Android phone (same Wi-Fi) open:
-#     http://<your-pc-lan-ip>:8000/app/
-# e.g. http://192.168.1.5:8000/app/
-```
 
 ```bash
 # Backend already running on your PC at port 8000.

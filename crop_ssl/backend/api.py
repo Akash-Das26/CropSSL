@@ -685,7 +685,10 @@ async def list_classes():
 @app.get("/attention/{model_name}")
 async def get_attention_maps(model_name: str):
     """Get attention map shapes from a model's transformer blocks."""
-    model = _get_model(model_name)
+    # Explicit unknown names must 404 — never silently serve another model
+    if model_name not in MODELS:
+        raise HTTPException(404, f"Model '{model_name}' not loaded")
+    model = MODELS[model_name]
     if not hasattr(model, "student_backbone") and not hasattr(model, "encoder"):
         raise HTTPException(400, "Model has no transformer backbone")
 
@@ -694,8 +697,10 @@ async def get_attention_maps(model_name: str):
         raise HTTPException(400, "No transformer blocks found")
 
     layer_count = len(backbone.blocks)
+    # Read the real per-head config from the first attention block
+    # (vit_small=6, vit_base=12, vit_large=16 — never derivable from embed_dim)
+    num_heads = backbone.blocks[0].attn.num_heads
     embed_dim = backbone.embed_dim if hasattr(backbone, "embed_dim") else 768
-    num_heads = embed_dim // 12  # assume 12 heads
 
     shapes = [[num_heads, 197, 197] for _ in range(layer_count)]
     return AttentionResponse(layer_count=layer_count, attention_shapes=shapes)
