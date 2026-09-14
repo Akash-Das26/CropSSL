@@ -1,6 +1,6 @@
 /* CropSSL mobile PWA — service worker */
-const CACHE = "cropssl-v1";
-const SHELL = ["/app/index.html", "/app/styles.css", "/app/app.js"];
+const CACHE = "cropssl-v2";
+const SHELL = ["/app/index.html", "/app/styles.css", "/app/app.js", "/app/knn.js"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)));
@@ -26,7 +26,7 @@ self.addEventListener("fetch", (event) => {
       url.pathname.startsWith("/classes") || url.pathname.startsWith("/auth") ||
       url.pathname.startsWith("/registry") || url.pathname.startsWith("/auto-retrain") ||
       url.pathname.startsWith("/drift") || url.pathname.startsWith("/audit") ||
-      url.pathname.startsWith("/pipeline")) {
+      url.pathname.startsWith("/pipeline") || url.pathname.includes("knn-bundle")) {
     return;
   }
   event.respondWith(

@@ -54,6 +54,8 @@ python -c "import crop_ssl, torch; print(f'CropSSL {crop_ssl.__version__} instal
 echo
 echo "✅ Done. Get started with:"
 echo "   cd \"$PWD\" && source venv/bin/activate"
+echo "   # Required for API auth (login-protected routes):"
+echo "   export CROPSSL_SECRET=\"\$(python3 -c 'import secrets; print(secrets.token_hex(32))')\""
 echo "   python3 -m crop_ssl.scripts.run_pipeline --epochs 1 --device cpu"
 echo
 echo "NOTE: the venv cannot stay activated after 'curl | bash' —"

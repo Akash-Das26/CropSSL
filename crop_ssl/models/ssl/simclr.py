@@ -9,9 +9,11 @@ Key features:
 - NT-Xent (Normalized Temperature-scaled Cross Entropy) loss
 - Two augmented views per image
 - Symmetric contrastive learning
+- Optional supervised contrastive loss ("SupCon", Khosla et al., 2020)
+  selected with loss="supcon" when pair labels are available.
 """
 
-from typing import Dict
+from typing import Dict, Optional
 
 import torch
 import torch.nn as nn
@@ -47,9 +49,15 @@ class SimCLR(nn.Module):
         embed_dim: int = 768,
         proj_dim: int = 128,
         temperature: float = 0.07,
+        loss: str = "nt_xent",
     ):
         super().__init__()
         self.temperature = temperature
+        if loss not in ("nt_xent", "supcon"):
+            raise ValueError(
+                f"Unknown loss: {loss}. Available: 'nt_xent', 'supcon'"
+            )
+        self.loss_type = loss
 
         # Build backbone
         backbone_fn = self.BACKBONE_REGISTRY[backbone]
@@ -99,16 +107,68 @@ class SimCLR(nn.Module):
         loss = F.cross_entropy(sim, labels)
         return loss
 
+    def supcon_loss(
+        self,
+        z_i: torch.Tensor,
+        z_j: torch.Tensor,
+        labels: torch.Tensor,
+    ) -> torch.Tensor:
+        """Supervised contrastive loss (SupCon, Khosla et al., 2020).
+
+        Anchors are pulled toward all same-label projections (both views)
+        and pushed away from everything else. Anchors with no positive
+        (singleton classes) are excluded from the mean, so the loss stays
+        finite for any label distribution.
+
+        Args:
+            z_i: Projections from view 1 (B, proj_dim).
+            z_j: Projections from view 2 (B, proj_dim).
+            labels: Class labels for the B samples (B,).
+
+        Returns:
+            Scalar loss.
+        """
+        B = z_i.shape[0]
+        z = torch.cat([z_i, z_j], dim=0)              # (2B, proj_dim)
+        z = F.normalize(z, dim=1)
+        y = torch.cat([labels, labels], dim=0)        # (2B,)
+
+        sim = torch.mm(z, z.t()) / self.temperature   # (2B, 2B)
+        # Numerical stability: shift by row max before exp
+        sim = sim - sim.max(dim=1, keepdim=True).values.detach()
+
+        eye = torch.eye(2 * B, dtype=torch.bool, device=sim.device)
+        positive_mask = (y.unsqueeze(0) == y.unsqueeze(1)) & ~eye
+        anchor_mask = positive_mask.any(dim=1)        # anchors with >=1 positive
+        if not anchor_mask.any():
+            # No positives at all (all labels distinct): fall back to identity
+            # pull — equivalent to NT-Xent restricted to the pair itself.
+            positive_mask = torch.zeros_like(eye)
+            for i in range(B):
+                positive_mask[i, i + B] = True
+                positive_mask[i + B, i] = True
+            anchor_mask = torch.ones(2 * B, dtype=torch.bool, device=sim.device)
+
+        exp_sim = torch.exp(sim.masked_fill(eye, float("-inf")))  # self excluded
+        log_prob = sim - torch.log(exp_sim.sum(dim=1, keepdim=True) + 1e-12)
+
+        pos_counts = positive_mask.sum(dim=1).clamp(min=1)
+        mean_log_prob_pos = (log_prob * positive_mask).sum(dim=1) / pos_counts
+        loss = -(mean_log_prob_pos[anchor_mask]).mean()
+        return loss
+
     def forward(
         self,
         view_1: torch.Tensor,
         view_2: torch.Tensor,
+        labels: Optional[torch.Tensor] = None,
     ) -> Dict[str, torch.Tensor]:
         """Forward pass with two augmented views.
 
         Args:
             view_1: First augmented view (B, C, H, W).
             view_2: Second augmented view (B, C, H, W).
+            labels: Class labels (B,), required when loss_type == 'supcon'.
 
         Returns:
             Dict with 'loss', 'z_i', 'z_j', 'features'.
@@ -122,7 +182,15 @@ class SimCLR(nn.Module):
         z_j = self.projector(feat_j)
 
         # Contrastive loss
-        loss = self.nt_xent_loss(z_i, z_j)
+        if self.loss_type == "supcon":
+            if labels is None:
+                raise ValueError(
+                    "loss='supcon' requires pair labels; pass labels=<tensor> "
+                    "or create the model with loss='nt_xent'"
+                )
+            loss = self.supcon_loss(z_i, z_j, labels)
+        else:
+            loss = self.nt_xent_loss(z_i, z_j)
 
         return {
             "loss": loss,
