@@ -755,16 +755,31 @@ def test_model_ema():
     from crop_ssl.models.backbones.vit import vit_small_patch16
     model = vit_small_patch16()
     ema = ModelEMA(model, decay=0.999)
-    # EMA should produce slightly different output
-    x = torch.randn(1, 3, 224, 224)
-    before = ema.shadow(x).clone()
+    first_shadow_param = next(ema.shadow.parameters())
+    w0 = first_shadow_param.detach().clone()
+    # Shift the live model so update() must track toward it; without this
+    # shadow == model initially and even a no-op update() would pass.
+    with torch.no_grad():
+        for p in model.parameters():
+            p.add_(1.0)
     ema.update()
-    after = ema.shadow(x)
-    diff = (before - after).abs().mean().item()
-    print(f"    EMA diff after 1 step: {diff:.6f}")
-    # Store/restore
+    # EMA math: shadow' = decay*shadow + (1-decay)*model = w0 + (1-decay)*1.0
+    expected = w0 + (1 - 0.999) * 1.0
+    got = first_shadow_param.detach()
+    assert torch.allclose(got, expected, atol=1e-6), (
+        f"EMA update math incorrect: got {got.flatten()[0].item():.6f}, "
+        f"expected {expected.flatten()[0].item():.6f}"
+    )
+    # Store/restore roundtrip must recover the stored model weights
     ema.store()
-    print("    EMA store/restore works")
+    with torch.no_grad():
+        for p in model.parameters():
+            p.add_(2.0)
+    ema.restore()
+    assert torch.allclose(next(model.parameters()).detach(), w0 + 1.0, atol=1e-6), (
+        "EMA restore() did not recover the stored model weights"
+    )
+    print("    EMA update math + store/restore verified")
 
 
 def test_cutmix():
@@ -1831,7 +1846,7 @@ def test_evaluate_script_choices():
     import subprocess
     result = subprocess.run(
         [sys.executable, "-m", "crop_ssl.scripts.evaluate", "--help"],
-        capture_output=True, text=True, timeout=10,
+        capture_output=True, text=True, timeout=120,  # cold torch import alone takes >10s on some machines
     )
     assert result.returncode == 0
     for ds in ["plant_seg", "field_plant", "diamos_plant", "bracol"]:
@@ -2037,7 +2052,11 @@ def test_checkpoint_partial_load():
         # Load shared backbone weights only (exclude mismatched head)
         ckpt = torch.load(f"{tmpdir}/ckpt.pth", map_location="cpu")
         backbone_sd = {k: v for k, v in ckpt["model_state_dict"].items() if "head" not in k}
-        model2.load_state_dict(backbone_sd, strict=False)
+        result = model2.load_state_dict(backbone_sd, strict=False)
+        assert len(result.missing_keys) > 0, "expected mismatched head keys to be missing"
+        assert result.unexpected_keys == [], (
+            f"backbone weights did not transfer (key mismatch): {result.unexpected_keys[:3]}"
+        )
     print("    Partial checkpoint load: OK")
 
 
@@ -3065,6 +3084,7 @@ def test_feature_extraction_speed():
     import time
     from crop_ssl.models.backbones.vit import vit_small_patch16, vit_base_patch16
     x = torch.randn(1, 3, 224, 224)
+    times = {}
     for name, fn in [("vit_small", vit_small_patch16), ("vit_base", vit_base_patch16)]:
         model = fn()
         model.eval()
@@ -3077,9 +3097,18 @@ def test_feature_extraction_speed():
         with torch.no_grad():
             for _ in range(20):
                 model.forward_features(x)
-        elapsed = (time.time() - start) / 20 * 1000
-        assert elapsed < 500, f"{name} too slow: {elapsed:.1f}ms"
-    print("    Feature extraction: ViT-S and ViT-B both <500ms per forward")
+        times[name] = (time.time() - start) / 20 * 1000
+        assert times[name] < 2000, f"{name} too slow: {times[name]:.1f}ms"
+    # Hardware-independent scaling gate: ViT-B must stay within 4x ViT-S.
+    # (768/384)^2 = 4.0 is the theoretical compute ratio; observed 2.3-3.2x
+    # across machines and load conditions.
+    assert times["vit_base"] < 4 * times["vit_small"], (
+        f"ViT-B/ViT-S scaling regressed: base={times['vit_base']:.1f}ms, "
+        f"small={times['vit_small']:.1f}ms"
+    )
+    print(f"    Feature extraction: ViT-S {times['vit_small']:.1f}ms, "
+          f"ViT-B {times['vit_base']:.1f}ms (B/S ratio "
+          f"{times['vit_base'] / times['vit_small']:.2f}x)")
 
 def test_attention_computation_cost():
     """Verify attention computation cost scales correctly."""
@@ -3575,6 +3604,36 @@ def test_api_frontend_json_bodies_work():
         assert r.status_code == 200, r.text[:200]
         assert r.json()["name"] == "pipe_json"
     print("    drift-set / ab-create / pipeline-create JSON bodies → 200 ✓")
+
+
+def test_api_attention_endpoint_reports_real_head_config():
+    """GET /attention/{name} must report the model's true head count and 404 unknown models.
+
+    Regression: the endpoint fabricated num_heads as embed_dim // 12 (32 for a
+    ViT-S/16 whose real config is 6 heads) and silently fell back to the active
+    model for unknown names instead of returning 404.
+    """
+    from fastapi.testclient import TestClient
+    from crop_ssl.backend.api import app
+
+    with TestClient(app) as client:
+        r = client.get("/attention/simclr_vit_small")
+        assert r.status_code == 200, r.text[:200]
+        data = r.json()
+        assert data["layer_count"] == 12
+        # ViT-S/16 ground truth (verified by test_vit_attention_map_shapes):
+        # 6 heads, not embed_dim // 12 = 32
+        assert data["attention_shapes"][0][0] == 6, (
+            f"expected 6 heads for ViT-S/16, got {data['attention_shapes'][0][0]}"
+        )
+        assert all(s == [6, 197, 197] for s in data["attention_shapes"])
+
+        # Unknown model names must 404, not silently serve the active model
+        r = client.get("/attention/model_that_does_not_exist")
+        assert r.status_code == 404, (
+            f"unknown model should 404, got {r.status_code}"
+        )
+    print("    /attention: ViT-S 6-head shapes + 404 for unknown model ✓")
 
 
 def test_api_checkpoint_upload_sets_active():
