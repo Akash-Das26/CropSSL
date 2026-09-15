@@ -22,6 +22,8 @@ import torchvision.transforms as transforms
 from torch.utils.data import Dataset
 from PIL import Image
 
+from crop_ssl.data.datasets._validation import quarantine_corrupt
+
 
 class PlantPathologyDataset(Dataset):
     """Plant Pathology 2020 dataset — apple leaf disease.
@@ -99,6 +101,12 @@ class PlantPathologyDataset(Dataset):
             # Fallback: scan images directory
             self._load_from_directory()
 
+        # Quarantine unreadable images BEFORE the split, so split indices
+        # stay in sync with what is iterable and corrupt files can never
+        # surface as silent placeholder images at __getitem__ time.
+        self.quarantined: list = []
+        self.samples, self.quarantined = quarantine_corrupt(self.samples)
+
         # Deterministic split
         if self.samples:
             rng = torch.Generator().manual_seed(42)
@@ -174,9 +182,13 @@ class PlantPathologyDataset(Dataset):
 
     def _create_synthetic(self):
         """Create synthetic dataset for testing."""
+        import zlib
         import numpy as np
 
         self.images_dir.mkdir(parents=True, exist_ok=True)
+        # Per-dataset seed: see plantvillage.py — shared global RNG state made
+        # fallback bytes collide across datasets and depend on call order.
+        np.random.seed(zlib.crc32(type(self).__name__.encode()) % (2**32))
 
         for i, cls_name in enumerate(self.CLASS_NAMES):
             for j in range(20):
@@ -206,10 +218,10 @@ class PlantPathologyDataset(Dataset):
 
     def __getitem__(self, idx: int):
         img_path, label, severity = self.samples[idx]
-        try:
-            image = Image.open(img_path).convert("RGB")
-        except Exception:
-            image = Image.new("RGB", (224, 224), (128, 128, 128))
+        # Corrupt files are excluded at init (see self.quarantined); a
+        # failure here means the file vanished mid-session and should
+        # raise, not become a silent placeholder.
+        image = Image.open(img_path).convert("RGB")
 
         if self.transform:
             image = self.transform(image)

@@ -26,6 +26,7 @@ Supported datasets and their primary sources:
 """
 
 import argparse
+import shutil
 import sys
 from pathlib import Path
 
@@ -166,6 +167,385 @@ def create_synthetic_all(data_root: str):
     print("\n✅ All synthetic datasets created!")
 
 
+# ── Zip import: arrange manual downloads into loader-expected layouts ────
+
+IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}
+
+# Where each dataset's manually-downloaded archive must land, and how to
+# recognize its content inside the zip. Layouts mirror the loaders exactly
+# (see each dataset module's "Expected directory structure" docstring).
+IMPORT_SPECS = {
+    "plantvillage": {"target": "PlantVillage", "style": "pv_buckets"},
+    "plantdoc": {"target": "PlantDoc", "style": "class_folders"},
+    "rice_leaf": {"target": "RiceLeaf", "style": "class_folders"},
+    "coffee_leaf": {"target": "CoffeeLeaf", "style": "class_folders"},
+    "domainnet_plant": {"target": "DomainNetPlant", "style": "class_folders"},
+    "new_plant_diseases": {"target": "plant-disease", "style": "class_folders"},
+    "icassava_2019": {"target": "iCassava2019/train", "style": "class_folders"},
+    "field_plant": {"target": "FieldPlant/train", "style": "roboflow_csv"},
+    "plant_pathology": {"target": "PlantPathology", "style": "images_plus_csv",
+                        "csv": "train.csv", "images_dir": "images"},
+    "cassava_leaf": {"target": "cassava-leaf-disease", "style": "images_plus_csv",
+                     "csv": "train.csv", "images_dir": "train_images"},
+    "diamos_plant": {"target": "DiaMOSPlant", "style": "images_plus_csv",
+                     "csv": "annotations.csv", "images_dir": "images"},
+    "bracol": {"target": "BRACOL", "style": "images_plus_csv",
+               "csv": "metadata.csv", "images_dir": "images"},
+    "plant_seg": {"target": "PlantSeg", "style": "images_plus_masks"},
+}
+
+
+def _safe_extract(zip_path: Path, staging: Path) -> Path:
+    """Extract a zip (zip-slip guarded) and return its content root."""
+    import zipfile
+
+    staging_resolved = staging.resolve()
+    with zipfile.ZipFile(zip_path) as zf:
+        for member in zf.namelist():
+            dest = (staging / member).resolve()
+            if not dest.is_relative_to(staging_resolved):
+                raise ValueError(f"unsafe path in zip: {member}")
+        zf.extractall(staging)
+
+    entries = list(staging.iterdir())
+    if len(entries) == 1 and entries[0].is_dir():
+        return entries[0]  # Kaggle-style single wrapper folder
+    return staging
+
+
+def _is_image(f: Path) -> bool:
+    return f.is_file() and f.suffix.lower() in IMAGE_SUFFIXES
+
+
+def _clean_synthetic_fallback(target: Path) -> int:
+    """Remove leftover synthetic_* fallback files so they can't mix with
+    real data under real class labels (audit finding). Class folders the
+    removal leaves completely empty are removed too — otherwise they linger
+    as empty classes in every later audit — while genuinely empty real
+    class folders (a real data problem worth surfacing) are left alone."""
+    removed = 0
+    emptied = []
+    if target.exists():
+        for f in sorted(target.rglob("synthetic_*")):
+            if f.is_file():
+                parent = f.parent
+                f.unlink()
+                removed += 1
+                emptied.append(parent)
+        for d in sorted(set(emptied), key=lambda p: len(p.parts), reverse=True):
+            while target != d and target in d.parents and d.exists() \
+                    and not any(d.iterdir()):
+                d.rmdir()
+                d = d.parent
+    return removed
+
+
+def _move_file(src: Path, dest_dir: Path, moved: list, skipped: list):
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / src.name
+    if dest.exists():
+        skipped.append(src.name)
+        return
+    shutil.move(str(src), str(dest))
+    moved.append(dest)
+
+
+def _merge_class_dirs(root: Path, target: Path,
+                      loose_class_name: str = None) -> tuple:
+    """Merge every directory that directly holds images into
+    target/<dirname>/ — handles train/+test/ splits of the same classes,
+    and DomainNet's domain/<class> nesting (domain prefix is reported).
+
+    loose_class_name: when the zip was a single wrapper folder whose name
+    IS the class (images sit directly inside it), loose images at the
+    content root are filed under that name. Only passed when we unwrapped
+    a single folder — loose images at a multi-entry zip root carry no
+    inferable class and are left alone.
+    """
+    moved, skipped = [], []
+    class_dirs = [
+        d for d in sorted(root.rglob("*"))
+        if d.is_dir() and any(_is_image(f) for f in d.iterdir())
+    ]
+    for cd in class_dirs:
+        rel = cd.relative_to(root)
+        if len(rel.parts) > 1:
+            print(f"    note: merging {rel} → {cd.name}/ (domain/level structure flattened)")
+        for f in sorted(cd.iterdir()):
+            if _is_image(f):
+                _move_file(f, target / cd.name, moved, skipped)
+    if loose_class_name:
+        for f in sorted(root.iterdir()):
+            if _is_image(f):
+                _move_file(f, target / loose_class_name, moved, skipped)
+    return moved, skipped
+
+
+def _import_roboflow_csv(root: Path, target: Path) -> tuple:
+    """FieldPlant Roboflow export: _annotations.csv + images beside it."""
+    moved, skipped = [], []
+    csvs = [p for p in sorted(root.rglob("_annotations.csv"))]
+    if not csvs:
+        return moved, skipped
+    csv_src = csvs[0]
+    _move_file(csv_src, target, moved, skipped)
+    for f in sorted(csv_src.parent.iterdir()):
+        if _is_image(f):
+            _move_file(f, target, moved, skipped)
+    return moved, skipped
+
+
+def _import_images_plus_csv(root: Path, target: Path, spec: dict) -> tuple:
+    moved, skipped = [], []
+    csv_name = spec.get("csv")
+    csvs = [p for p in sorted(root.rglob("*.csv"))
+            if csv_name is None or p.name == csv_name]
+    if not csvs and csv_name:
+        csvs = [p for p in sorted(root.rglob("*.csv"))]  # any csv, warn below
+    if csvs:
+        if csvs[0].name != csv_name:
+            print(f"    note: expected {csv_name}, found {csvs[0].name} — using it")
+        _move_file(csvs[0], target, moved, skipped)
+    images_dir = spec.get("images_dir", "images")
+    img_dir = root / images_dir
+    if not img_dir.is_dir():
+        img_dir = next(
+            (d for d in sorted(root.rglob("*"))
+             if d.is_dir() and any(_is_image(f) for f in d.iterdir())),
+            None,
+        )
+    n_img = 0
+    if img_dir is not None:
+        for f in sorted(img_dir.iterdir()):
+            if _is_image(f):
+                _move_file(f, target / images_dir, moved, skipped)
+                n_img += 1
+    return moved, skipped
+
+
+def _import_pv(root: Path, target: Path) -> tuple:
+    """PlantVillage archives, two real-world shapes:
+
+    1. mohanty/Mendeley bundles with named image-type buckets at any depth
+       (colored/ or color/, grayscale/ or gray/, segmented/ or segmentation/),
+       each holding <class>/*.jpg — each bucket maps to its loader path
+       (PlantVillage/colored|grayscale|segmented).
+    2. Bare class folders (e.g. spMohanty color.zip extracts) — filed into
+       PlantVillage/colored/.
+    """
+    moved, skipped = [], []
+    bucket_names = {
+        "colored": "colored", "color": "colored",
+        "grayscale": "grayscale", "gray": "grayscale",
+        "segmented": "segmented", "segmentation": "segmented",
+    }
+    consumed = set()
+    bucket_dirs = [
+        d for d in sorted(root.rglob("*"))
+        if d.is_dir() and d.name.lower() in bucket_names
+    ]
+    for bd in bucket_dirs:
+        consumed.add(bd)
+        dest_name = bucket_names[bd.name.lower()]
+        for cd in sorted(bd.rglob("*")):
+            if cd.is_dir() and any(_is_image(f) for f in cd.iterdir()):
+                consumed.add(cd)
+                for f in sorted(cd.iterdir()):
+                    if _is_image(f):
+                        _move_file(f, target / dest_name / cd.name,
+                                   moved, skipped)
+    # Class folders outside any bucket belong in colored/
+    for cd in sorted(root.rglob("*")):
+        if (cd in consumed or not cd.is_dir()
+                or not any(_is_image(f) for f in cd.iterdir())):
+            continue
+        if any(p in consumed for p in cd.parents):
+            continue
+        for f in sorted(cd.iterdir()):
+            if _is_image(f):
+                _move_file(f, target / "colored" / cd.name, moved, skipped)
+    return moved, skipped
+
+
+def _import_images_plus_masks(root: Path, target: Path) -> tuple:
+    moved, skipped = [], []
+    dirs = [d for d in sorted(root.rglob("*")) if d.is_dir()]
+    img_dir = next((d for d in dirs if "image" in d.name.lower()), None)
+    mask_dir = next((d for d in dirs if "mask" in d.name.lower()), None)
+    for src_dir, dest_name in ((img_dir, "images"), (mask_dir, "masks")):
+        if src_dir is not None:
+            for f in sorted(src_dir.rglob("*")):
+                if f.is_file():
+                    _move_file(f, target / dest_name, moved, skipped)
+    class_map = next((p for p in root.rglob("class_map.json")), None)
+    if class_map is not None:
+        _move_file(class_map, target, moved, skipped)
+    return moved, skipped
+
+
+def import_zip(name: str, zip_path: str, data_root: str) -> None:
+    """Extract a manually-downloaded dataset zip and arrange it into the
+    layout its loader expects. Prints what landed where; follow with
+    validate_datasets to audit the import."""
+    import tempfile
+
+    spec = IMPORT_SPECS.get(name)
+    if spec is None:
+        raise ValueError(
+            f"No import layout defined for '{name}'. "
+            f"Supported: {sorted(IMPORT_SPECS)}"
+        )
+    src = Path(zip_path).expanduser()
+    if not src.exists():
+        raise FileNotFoundError(f"zip not found: {src}")
+
+    root_path = Path(data_root)
+    target = root_path / spec["target"]
+    removed = _clean_synthetic_fallback(target)
+    if removed:
+        print(f"  removed {removed} leftover synthetic_* fallback file(s) from {target}")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        staging = Path(tmp) / "x"
+        content = _safe_extract(src, staging)
+        # Single wrapper folder unwrapped? Its name may itself be the class.
+        loose_class = content.name if content != staging else None
+        style = spec["style"]
+        if style == "class_folders":
+            moved, skipped = _merge_class_dirs(
+                content, target, loose_class_name=loose_class
+            )
+        elif style == "roboflow_csv":
+            moved, skipped = _import_roboflow_csv(content, target)
+        elif style == "images_plus_csv":
+            moved, skipped = _import_images_plus_csv(content, target, spec)
+        elif style == "images_plus_masks":
+            moved, skipped = _import_images_plus_masks(content, target)
+        elif style == "pv_buckets":
+            moved, skipped = _import_pv(content, target)
+        else:  # pragma: no cover
+            raise ValueError(f"unknown import style: {style}")
+
+    print(f"  ✓ {name}: {len(moved)} file(s) → {target}"
+          + (f", {len(skipped)} skipped (name collisions)" if skipped else ""))
+    if moved:
+        print(f"    verify: python3 -m crop_ssl.scripts.validate_datasets "
+              f"--root {data_root} --datasets {name}")
+
+
+def verify_import(name: str, data_root: str) -> bool:
+    """Run the dataset integrity validator on one just-imported dataset and
+    print a compact summary. Returns True when the import looks healthy.
+
+    Failure conditions (also surfaced by exit code 2 from the CLI):
+    data missing, empty classes, tiny/zero-byte images, cross-split leakage.
+    Corrupt files quarantined by the loader and duplicate-content samples
+    are flagged as warnings without failing the import.
+    """
+    from crop_ssl.scripts.validate_datasets import audit_dataset
+
+    report = audit_dataset(name, str(data_root), do_hashes=True)
+    if not report.get("data_present"):
+        print(f"  ⚠ {name}: no data found at {data_root} — import may have failed")
+        return False
+
+    ok = True
+    print(f"  ✓ {name}: {report['samples_total']} samples "
+          f"({report['samples_per_split']}), {report['num_classes']} classes")
+    if report["empty_classes"]:
+        ok = False
+        print(f"  ⚠ empty classes (no samples discovered): "
+              f"{report['empty_classes']}")
+    n_quarantined = len(report["quarantined_corrupt"])
+    if n_quarantined:
+        print(f"  ⚠ {n_quarantined} corrupt file(s) quarantined — "
+              f"inspect <dataset>.quarantined")
+    stats = report["image_stats"]
+    if stats["tiny"] or stats["zero_byte"]:
+        ok = False
+        print(f"  ⚠ suspicious images: {len(stats['tiny'])} tiny (<=1px), "
+              f"{len(stats['zero_byte'])} zero-byte")
+    n_dupes = report.get("duplicate_samples") or 0
+    if isinstance(n_dupes, int) and n_dupes:
+        print(f"  ⚠ {n_dupes} duplicate-content sample(s) "
+              f"in {report['duplicate_content_groups']} group(s)")
+    leaks = report.get("cross_split_leakage") or {}
+    if isinstance(leaks, dict) and leaks:
+        ok = False
+        print(f"  ⚠ cross-split leakage (same bytes in multiple splits): "
+              f"{leaks}")
+    if ok and not (isinstance(n_dupes, int) and n_dupes) and not n_quarantined:
+        print("    integrity: no corrupt files, no duplicates, no split leakage")
+    return ok
+
+
+def dedupe_dataset(name: str, data_root: str) -> int:
+    """Remove exact-duplicate image files (same md5) from an imported
+    dataset directory. The first occurrence in sorted path order is kept,
+    so behavior is deterministic; every removal is printed and logged to
+    ``<data_root>/<name>-dedupe.log``. Class directories emptied by the
+    removal are pruned so no empty classes linger.
+
+    Note on cross-CLASS duplicates: one image appearing under two class
+    folders is a label ambiguity as well as a duplicate; this keeps the
+    alphabetically-first path and logs both, so the decision can be
+    re-adjudicated manually from the log.
+
+    Returns the number of files removed.
+    """
+    from crop_ssl.scripts.validate_datasets import md5
+
+    spec = IMPORT_SPECS.get(name)
+    if spec is None:
+        raise ValueError(
+            f"No import layout defined for '{name}'. "
+            f"Supported: {sorted(IMPORT_SPECS)}"
+        )
+    target = Path(data_root) / spec["target"]
+    if not target.exists():
+        print(f"  ⚠ {name}: nothing to dedupe (no data at {target})")
+        return 0
+
+    files = sorted(
+        p for p in target.rglob("*")
+        if p.is_file() and p.suffix.lower() in IMAGE_SUFFIXES
+    )
+    kept: dict = {}
+    removed: list = []
+    for p in files:
+        h = md5(p)
+        if h in kept:
+            removed.append((p, kept[h]))
+        else:
+            kept[h] = p
+
+    if not removed:
+        print(f"  ✓ {name}: no duplicate-content files")
+        return 0
+
+    freed = sum(p.stat().st_size for p, _ in removed)
+    log_path = Path(data_root) / f"{name}-dedupe.log"
+    with open(log_path, "w") as log:
+        for dup, original in removed:
+            dup.unlink()
+            print(f"    removed duplicate: {dup.relative_to(target)} "
+                  f"(identical to {original.relative_to(target)})")
+            log.write(f"REMOVED\t{dup}\tidentical to\t{original}\n")
+
+    # Prune class directories the removal left empty (deepest first), so
+    # no empty classes linger — same rule as the synthetic-fallback cleanup.
+    emptied = {dup.parent for dup, _ in removed}
+    for d in sorted(emptied, key=lambda p: len(p.parts), reverse=True):
+        while target != d and target in d.parents and d.exists() \
+                and not any(d.iterdir()):
+            d.rmdir()
+            d = d.parent
+
+    print(f"  ✓ {name}: removed {len(removed)} duplicate file(s), "
+          f"freed {freed / (1024 * 1024):.1f} MB — log: {log_path}")
+    return len(removed)
+
+
 # ── Main ──────────────────────────────────────────────────────────────────
 
 ALL_DATASETS = [
@@ -219,6 +599,20 @@ Examples:
                         help="Create synthetic datasets only (fast testing)")
     parser.add_argument("--list", action="store_true",
                         help="List all available datasets with sources")
+    parser.add_argument("--import-zip", nargs=2, metavar=("DATASET", "ZIP"),
+                        action="append",
+                        help="Import a manually-downloaded zip into the layout "
+                             "its loader expects (repeatable)")
+    parser.add_argument("--verify", action="store_true",
+                        help="After each --import-zip, run the dataset "
+                             "integrity validator and print a summary "
+                             "(exit code 2 if problems are flagged)")
+    parser.add_argument("--dedupe", action="store_true",
+                        help="Remove duplicate-content image files (same bytes): "
+                             "keeps the first occurrence in sorted path order, "
+                             "logs removals to <root>/<dataset>-dedupe.log. "
+                             "Runs after each --import-zip, or standalone with "
+                             "--dataset <name> on already-imported data")
     args = parser.parse_args()
 
     if args.list:
@@ -228,6 +622,33 @@ Examples:
         for name, desc in DATASET_DESCRIPTIONS.items():
             print(f"║  {name:20s} │ {desc}")
         print("╚══════════════════════════════════════════════════════════════╝")
+        return
+
+    if args.import_zip:
+        flagged = False
+        for ds_name, zip_path in args.import_zip:
+            try:
+                import_zip(ds_name, zip_path, args.data_root)
+            except Exception as e:
+                print(f"  ⚠ import failed for {ds_name}: {e}")
+                sys.exit(1)
+            if args.dedupe:
+                dedupe_dataset(ds_name, args.data_root)
+            if args.verify and not verify_import(ds_name, args.data_root):
+                flagged = True
+        if flagged:
+            sys.exit(2)  # imports landed, but verification flagged problems
+        return
+
+    if args.dedupe:
+        if args.dataset in ("all", "synthetic"):
+            print("--dedupe requires a single --dataset name")
+            sys.exit(1)
+        try:
+            dedupe_dataset(args.dataset, args.data_root)
+        except Exception as e:
+            print(f"  ⚠ dedupe failed for {args.dataset}: {e}")
+            sys.exit(1)
         return
 
     data_root = Path(args.data_root)

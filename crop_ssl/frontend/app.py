@@ -589,7 +589,7 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
     st.markdown('<div class="section-header">⚙️ Model Configuration</div>', unsafe_allow_html=True)
-    method = st.selectbox("SSL Method", ["simclr", "dinov2", "moco_v3", "mae"],
+    method = st.selectbox("SSL Method", ["simclr", "dinov2", "moco_v3", "mae", "vicreg"],
                           format_func=lambda x: {"simclr": "🔵 SimCLR", "dinov2": "🟢 DINOv2",
                                                   "moco_v3": "🟣 MoCo v3", "mae": "🟡 MAE"}[x],
                           label_visibility="collapsed")
@@ -880,7 +880,7 @@ with tab3:
 
     c1, c2 = st.columns([1, 1])
     with c1:
-        tm = st.selectbox("Method", ["simclr", "dinov2", "moco_v3", "mae"], key="train_method",
+        tm = st.selectbox("Method", ["simclr", "dinov2", "moco_v3", "mae", "vicreg"], key="train_method",
                           format_func=lambda x: {"simclr": "🔵 SimCLR", "dinov2": "🟢 DINOv2",
                                                   "moco_v3": "🟣 MoCo v3", "mae": "🟡 MAE"}[x])
         tb = st.selectbox("Backbone", ["vit_small", "vit_base"], key="train_bb",
@@ -929,7 +929,7 @@ with tab3:
                 n = 0
                 for imgs, _ in loader:
                     imgs = imgs.to(dev)
-                    if tm in ("simclr", "moco_v3"):
+                    if tm in ("simclr", "moco_v3", "vicreg"):
                         result = model(imgs, torch.randn_like(imgs))
                     elif tm == "mae":
                         result = model(imgs)
@@ -1173,7 +1173,7 @@ with tab5:
         """, unsafe_allow_html=True)
         knn_c1, knn_c2, knn_c3, knn_c4 = st.columns(4)
         with knn_c1:
-            knn_method = st.selectbox("SSL Method", ["simclr", "dinov2", "moco_v3", "mae"], key="knn_method")
+            knn_method = st.selectbox("SSL Method", ["simclr", "dinov2", "moco_v3", "mae", "vicreg"], key="knn_method")
         with knn_c2:
             knn_backbone = st.selectbox("Backbone", ["vit_small", "vit_base", "vit_large"], key="knn_backbone")
         with knn_c3:
@@ -1566,7 +1566,7 @@ with tab7:
         pc1, pc2 = st.columns(2)
         with pc1:
             pipe_name = st.text_input("Pipeline Name", value="plantdoc_finetune", key="pipe_name")
-            pipe_ssl = st.selectbox("SSL Method", ["simclr", "dinov2", "moco_v3", "mae"], key="pipe_ssl")
+            pipe_ssl = st.selectbox("SSL Method", ["simclr", "dinov2", "moco_v3", "mae", "vicreg"], key="pipe_ssl")
         with pc2:
             pipe_dataset = st.selectbox("Source Dataset", ["plantvillage", "new_plant_diseases"], key="pipe_src")
             pipe_target = st.selectbox("Target Dataset", ["plantdoc", "fieldplant", "cassava"], key="pipe_tgt")
@@ -1638,11 +1638,11 @@ with tab8:
     """, unsafe_allow_html=True)
 
     features = [
-        ("🧬", "4 SSL Methods", "DINOv2, MoCo v3, SimCLR, MAE"),
+        ("🧬", "5 SSL Methods", "DINOv2, MoCo v3, SimCLR, MAE, VICReg"),
         ("🎯", "4 Adaptation", "Linear, LoRA, ProtoNet, MAML"),
         ("🔄", "3 Domain Align", "DANN, MMD, CORAL"),
         ("📚", "13 Datasets", "Lab + Field + Multi-device"),
-        ("✅", "248 Tests", "Unit, integration, efficiency"),
+        ("✅", "266 Tests", "Unit, integration, efficiency"),
         ("📦", "Model Registry", "Version control & rollback"),
         ("🤖", "Automation", "Auto-retrain, drift, A/B"),
         ("🛤️", "Pipelines", "End-to-end orchestration"),
@@ -1663,7 +1663,7 @@ with tab8:
     <div class="glass" style="padding:1.2rem;">
         <div style="color:var(--text-dim); font-size:0.75rem; line-height:1.8;">
             <strong style="color:var(--neon);">Key Contributions:</strong><br>
-            • Systematic benchmarking of 4 SSL methods across 5+ domain-shift pairs<br>
+            • Systematic benchmarking of 5 SSL methods across 5+ domain-shift pairs<br>
             • Few-shot LoRA adaptation achieving 85-91% accuracy with only 5-20 labeled field samples<br>
             • CKA analysis revealing that domain shift primarily affects shallow layers<br>
             • Attention visualization showing how SSL models "look" at disease regions<br>
@@ -1681,7 +1681,7 @@ st.markdown(f"""
 <div style="text-align:center; padding:2rem 0 1rem; margin-top:2rem;">
     <div class="divider"></div>
     <div style="margin-top:1rem; color:var(--text-muted); font-size:0.62rem; letter-spacing:1px;">
-        🧬 CropSSL v2.0 · {len(CLASSES)} Diseases · 13 Datasets · 248 Tests · 4 SSL Methods · Automation Engine
+        🧬 CropSSL v2.0 · {len(CLASSES)} Diseases · 13 Datasets · 266 Tests · 5 SSL Methods · Automation Engine
     </div>
     <div style="color:var(--text-muted); font-size:0.58rem; margin-top:0.3rem; opacity:0.5;">
         Cross-Domain Robustness of Self-Supervised Vision Foundation Models for Crop Disease Detection
