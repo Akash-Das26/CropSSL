@@ -665,7 +665,7 @@ async def load_model(model_name: str, user_payload: Dict = Depends(require_admin
     global ACTIVE_MODEL
     from crop_ssl.models.ssl import create_ssl_model
 
-    known_methods = ["dinov2", "moco_v3", "simclr", "mae"]
+    known_methods = ["dinov2", "moco_v3", "simclr", "mae", "vicreg"]
     method, backbone = "simclr", "vit_small"
     for m in known_methods:
         if model_name.startswith(m):
@@ -711,7 +711,7 @@ async def upload_checkpoint_model(
     embed_dims = {"vit_small": 384, "vit_base": 768, "vit_large": 1024}
     if backbone not in embed_dims:
         raise HTTPException(400, f"Unknown backbone: {backbone}")
-    if method not in ("dinov2", "moco_v3", "simclr", "mae"):
+    if method not in ("dinov2", "moco_v3", "simclr", "mae", "vicreg"):
         raise HTTPException(400, f"Unknown method: {method}")
 
     import io as _io
@@ -1060,7 +1060,7 @@ async def training_status():
 @app.post("/training/start")
 async def start_training(req: TrainingRequest, user_payload: Dict = Depends(require_admin)):
     """Start a training job in background."""
-    if req.method not in ["simclr", "dinov2", "moco_v3", "mae"]:
+    if req.method not in ["simclr", "dinov2", "moco_v3", "mae", "vicreg"]:
         raise HTTPException(400, f"Unknown method: {req.method}")
     if req.backbone not in ["vit_small", "vit_base", "vit_large"]:
         raise HTTPException(400, f"Unknown backbone: {req.backbone}")
@@ -1096,7 +1096,7 @@ async def start_training(req: TrainingRequest, user_payload: Dict = Depends(requ
                 n = 0
                 for images, _ in loader:
                     images = images.to(DEVICE)
-                    if req.method in ("simclr", "moco_v3"):
+                    if req.method in ("simclr", "moco_v3", "vicreg"):
                         result = model(images, torch.randn_like(images))
                     elif req.method == "mae":
                         result = model(images)
@@ -1628,7 +1628,7 @@ async def eval_knn(req: KNNRunRequest):
     Note: runs synchronously like /predict — a vit_large eval on CPU can
     hold the event loop for tens of seconds.
     """
-    if req.method not in ("dinov2", "moco_v3", "simclr", "mae"):
+    if req.method not in ("dinov2", "moco_v3", "simclr", "mae", "vicreg"):
         raise HTTPException(400, f"Unknown method: {req.method}")
     if req.backbone not in ("vit_small", "vit_base", "vit_large"):
         raise HTTPException(400, f"Unknown backbone: {req.backbone}")

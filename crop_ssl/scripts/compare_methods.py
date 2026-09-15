@@ -32,7 +32,7 @@ from crop_ssl.evaluation.metrics import (
 from crop_ssl.utils.reproducibility import set_seed
 
 
-SSL_METHODS = ["dinov2", "moco_v3", "simclr", "mae"]
+SSL_METHODS = ["dinov2", "moco_v3", "simclr", "mae", "vicreg"]
 ADAPTATION_METHODS = ["linear", "lora", "prototypical"]
 BACKBONES = {"vit_small": 384, "vit_base": 768, "vit_large": 1024}
 
@@ -97,7 +97,7 @@ def benchmark_ssl_method(
                     for _ in range(9)
                 ]
                 result = model(crops)
-            elif method in ("simclr", "moco_v3"):
+            elif method in ("simclr", "moco_v3", "vicreg"):
                 result = model(images, torch.randn_like(images))
             elif method == "mae":
                 result = model(images)
@@ -154,7 +154,7 @@ def benchmark_adaptation(
     model.train()
     for images, _ in source_loader:
         images = images.to(device)
-        if ssl_method in ("simclr", "moco_v3"):
+        if ssl_method in ("simclr", "moco_v3", "vicreg"):
             result = model(images, torch.randn_like(images))
         elif ssl_method == "mae":
             result = model(images)

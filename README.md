@@ -9,7 +9,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/PyTorch-2.0+-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white" alt="PyTorch">
-  <img src="https://img.shields.io/badge/Tests-248%20✅-brightgreen?style=for-the-badge" alt="Tests">
+  <img src="https://img.shields.io/badge/Tests-266%20✅-brightgreen?style=for-the-badge" alt="Tests">
   <img src="https://img.shields.io/badge/SSL-4%20Methods-blueviolet?style=for-the-badge" alt="SSL">
   <img src="https://img.shields.io/badge/Datasets-13-teal?style=for-the-badge" alt="Datasets">
   <img src="https://img.shields.io/badge/API-52%20Endpoints-orange?style=for-the-badge" alt="API">
@@ -138,10 +138,16 @@ ViT-B/16   ███████████████████████
 | **MoCo v3** | 54.4M | 384 | 38.8 ms | 121.2 ms | 2 encoders + 65K queue |
 | **MAE** | 47.6M | 384 | 47.7 ms | 55.8 ms | encoder + 8L decoder |
 | **DINOv2** | 250.7M | 384 | 36.7 ms | 436.7 ms | 2 encoders + 10 crops |
+| **VICReg** | 22.7M | 384 | 40.4 ms | 80.2 ms | 1 encoder |
 
 > Parameter counts are the **actual `create_ssl_model(...)` numbers** (e.g.
 > DINOv2 = student + teacher ViT-S). Full-forward for DINOv2 includes its
 > native multi-crop (1×224 + 9×96 views); all other models use single view.
+> VICReg was measured 2026-09-15 under the same protocol (CPU, eval, batch 1,
+> 224×224) in an interleaved run with SimCLR as calibration; in that run
+> SimCLR reproduced at 40.3 / 79.9 ms — 12%/6% above the older SimCLR row —
+> so VICReg's absolute values carry the same upward drift (its measured cost
+> is within 1% of SimCLR's, as expected for an identical encoder + head).
 
 ### Quick-Benchmark Run (real output of `compare_methods --quick`, 2 epochs, synthetic 5-class)
 
@@ -278,7 +284,7 @@ shift, not just accuracy.
 
 ---
 
-## 🧪 Test Suite: 248/248 Passing
+## 🧪 Test Suite: 266/266 Passing
 
 ```
 pytest crop_ssl/tests/test_all.py
@@ -599,7 +605,7 @@ python3 -m crop_ssl.scripts.evaluate \
     --source_dataset rice_leaf --target_dataset coffee_leaf \
     --adaptation_method linear --k_shot 5 --device cpu
 
-# Compare all 4 SSL methods + adaptation strategies
+# Compare all 5 SSL methods + adaptation strategies
 python3 -m crop_ssl.scripts.compare_methods --quick
 
 # Few-shot k-NN / nearest-centroid classifier on SSL embeddings (PyTorch or ONNX)
@@ -654,6 +660,30 @@ Default remains `loss="nt_xent"` (fully backward-compatible). Trade-off:
 SupCon needs labels per batch and same-label pairs to be present — anchors
 without positives are excluded from the loss.
 
+### VICReg (5th SSL method)
+
+VICReg (Bardes, Ponce & Lecun, ICLR 2022) closes the non-contrastive gap in
+the method lineup: like SimCLR it trains from two augmented views, but it
+needs no negative pairs, no momentum encoder, and no large-batch tricks.
+Collapse is prevented explicitly by a variance hinge (per-dimension std must
+stay above 1) and redundancy by a covariance hinge (off-diagonal
+covariances pushed to zero), alongside the mean-squared-error invariance
+term:
+
+```python
+model = create_ssl_model("vicreg", backbone="vit_small", embed_dim=384)
+result = model(view_1, view_2)   # dict: loss, invariance, variance, covariance
+```
+
+VICReg is available everywhere the other four methods are: the training
+scripts (`--method vicreg`), the benchmark sweep (`SSL_METHODS`), all API
+routes that take an SSL method, `/eval/knn`, and the dashboard dropdowns.
+Weights default to the paper's 25/25/25 for the invariance/variance/
+covariance terms (`sim_weight` / `var_weight` / `cov_weight` kwargs).
+Trade-off: two encoder passes per step (like SimCLR), and the variance /
+covariance hinges need batches large enough for stable batch statistics
+(tiny batches make the hinges noisy).
+
 ### Resumable Benchmarks
 
 Interrupted benchmark sweeps can skip completed cells:
@@ -665,6 +695,120 @@ python3 -m crop_ssl.scripts.compare_methods --quick --resume
 Cached cells are reused only when the stored run config (backbone, device,
 epochs) matches exactly; partial results are merged and rewritten to
 `benchmark_results.json`.
+
+### Dataset Integrity & Quarantine
+
+Dataset loaders no longer silently mask corrupt images. Unreadable files
+(garbage bytes, truncated JPEGs, zero-byte files) are **quarantined** at
+load time: excluded from the sample list and recorded with the reason in
+the loader's `.quarantined` attribute (one log line per file), so a real
+label can never point at a placeholder image. Quarantine runs **before**
+the deterministic split (seed=42), so `train + val + test` always equals
+the iterable total. `__getitem__` now raises if a file disappears
+mid-session instead of returning a gray placeholder.
+
+Audit any root — counts, class ordering, empty classes, duplicates and
+cross-split/cross-dataset leakage by content hash, image validity, and
+real-vs-synthetic divergence:
+
+```bash
+python3 -m crop_ssl.scripts.validate_datasets --root ./data --json report.json
+```
+
+Synthetic fallbacks are now deterministically seeded per dataset (previously
+they shared the global numpy RNG state, which made fallback bytes depend on
+call order and produced byte-identical files across different datasets).
+
+### Downloading Real Data
+
+Only **PlantVillage** and **Cassava Leaf** are auto-downloadable (HuggingFace,
+via `crop_ssl.scripts.download_data --dataset <name>`); the rest require manual
+download because of Kaggle ToS / account requirements.
+
+**Setup:** `pip install datasets kaggle` and put your `kaggle.json` API token
+in `~/.kaggle/` (Kaggle → Account → API).
+
+**Easiest path:** download a dataset's archive (Kaggle CLI, browser, git
+clone, Zenodo/Mendeley direct), then let the importer arrange it into the
+exact layout its loader expects:
+
+```bash
+# Kaggle example
+kaggle competitions download -c plant-pathology-2020-fgvc7 -p data/raw
+python3 -m crop_ssl.scripts.download_data \
+    --data_root ./data \
+    --import-zip plant_pathology data/raw/plant-pathology-2020-fgvc7.zip \
+    --verify
+# → extracts, arranges (train.csv + images/), removes leftover synthetic_*
+#   fallback files (and class folders it empties), then runs the integrity
+#   validator automatically
+```
+
+`--import-zip` (repeatable) knows each dataset's layout — class-folder merges
+(`plantdoc`, `rice_leaf`, `coffee_leaf`, `new_plant_diseases`, `icassava_2019`,
+`domainnet_plant`), CSV+images layouts (`plant_pathology`, `cassava_leaf`,
+`bracol`, `diamos_plant`), Roboflow exports (`field_plant`), image+mask
+pairs (`plant_seg`), and PlantVillage bundles — archives with named
+image-type buckets (`colored/` or `color/`, `grayscale/` or `gray/`,
+`segmented/` or `segmentation/`) map each bucket to its loader path, and
+bare class-folder extracts land in `PlantVillage/colored/` as a fallback
+when the auto-download mirrors are unreachable. It refuses malicious
+archive paths and reports name collisions instead of overwriting.
+
+**Manual sources & expected layouts:**
+
+| Dataset | Source | Arrange into (auto-done by `--import-zip`) |
+|---|---|---|
+| plantdoc | github.com/pratikkayal/PlantDoc-Dataset | `data/PlantDoc/<ClassName>/*.jpg` (train+test merged) |
+| plant_pathology | kaggle `plant-pathology-2020-fgvc7` | `data/PlantPathology/images/` + `train.csv` |
+| icassava_2019 | kaggle `cassava-disease` | `data/iCassava2019/train/<cbb\|cbsd\|cgm\|cmd\|healthy>/` |
+| new_plant_diseases | kaggle `emmarex/plantdisease` | `data/plant-disease/<ClassName>/` |
+| cassava_leaf | kaggle `cassava-leaf-disease-classification` (or auto HF) | `train_images/` + `train.csv` |
+| rice_leaf | search Kaggle "rice leaf disease" | `data/RiceLeaf/<bacterial_leaf_blight\|brown_spot\|leaf_blast\|leaf_blight\|leaf_scald\|narrow_brown_spot\|healthy>/` — missing folders are skipped, `num_classes` stays 7 |
+| coffee_leaf | no pinned source (prefer BRACOL) | `data/CoffeeLeaf/<healthy\|rust\|miner\|phoma\|cercospora>/` |
+| plant_seg | github.com/tqwei05/PlantSeg → Zenodo | `data/PlantSeg/images/` + `masks/<same-stem>.png` (+ `class_map.json`) |
+| field_plant | roboflow.com/universe *plant-disease-detection/fieldplant* (CSV export) | `data/FieldPlant/train/_annotations.csv` + images |
+| diamos_plant | zenodo DOI 10.5281/zenodo.5557313 | `data/DiaMOSPlant/images/` + `annotations.csv` (`image_id,disease,severity,growth_stage`) |
+| bracol | data.mendeley.com/datasets/yy2k5y8mxg/1 | `data/BRACOL/images/` + `metadata.csv` — class strings must match the 5 `CLASS_NAMES` exactly, else rows silently map to class 0 |
+| domainnet_plant | no public source (framework's simulated domains) | `data/DomainNetPlant/<studio\|greenhouse\|field\|mobile\|aerial>/<class>/` |
+| plantvillage | auto: HuggingFace `mohanty/PlantVillage` → Mendeley mirror; or `--import-zip plantvillage <archive.zip>` | `data/PlantVillage/<colored\|grayscale\|segmented>/<38 classes>/` (bare class-folder zips → `colored/`) |
+
+**After each download, audit it:**
+
+```bash
+python3 -m crop_ssl.scripts.validate_datasets --root ./data --dataset <name>
+```
+
+Or append `--verify` to an import command to do it automatically: it prints
+sample/class counts, warns about quarantined corrupt files, duplicate
+content, empty classes, tiny/zero-byte images, and cross-split leakage, and
+exits with code 2 when something needs attention (0 when the import is
+clean) — scriptable for batch imports.
+
+**Self-cleaning imports:** add `--dedupe` to remove duplicate-content images
+(same bytes) after each import, or run it standalone on already-imported
+data:
+
+```bash
+python3 -m crop_ssl.scripts.download_data --data_root ./data \
+    --import-zip plantdoc ~/Downloads/PlantDoc-Dataset.zip --dedupe --verify
+# or later, on data already imported:
+python3 -m crop_ssl.scripts.download_data --data_root ./data --dedupe --dataset plantdoc
+```
+
+The first occurrence in sorted path order is kept; every removal is printed
+and written to `data/<dataset>-dedupe.log` for manual re-adjudication —
+important because upstream duplicates are often **cross-class** (the same
+photo labeled as two different diseases, e.g. PlantDoc ships 9 such files:
+Corn Gray leaf spot ↔ Corn leaf blight, Potato early ↔ late blight), which
+is a label ambiguity as much as a duplicate. Class directories emptied by
+the removal are pruned. Removing duplicates also eliminates cross-split
+leakage when the leaked bytes are duplicates of each other.
+
+Real counts replace the fallback numbers (e.g. PlantVillage 38 classes, not
+3; PlantSeg 115, not 20). **Delete a dataset's synthetic fallback folder
+before unzipping real data into it** — `--import-zip` does this for you, but
+manual unzips must not mix fallback noise images with real class labels.
 
 ### Few-Shot k-NN Evaluation from the API & Dashboard
 
@@ -1084,7 +1228,7 @@ The full API surface is also browsable live at `http://localhost:8000/docs`.
 
 ```
 CropSSL/
-├── .github/workflows/ci.yml       # CI/CD: syntax + imports + 248 tests + Docker
+├── .github/workflows/ci.yml       # CI/CD: syntax + imports + 266 tests + Docker
 ├── android/                       # Native Android WebView wrapper (APK)
 ├── crop_ssl/
 │   ├── models/
@@ -1094,6 +1238,7 @@ CropSSL/
 │   │   │   ├── moco_v3.py             # MoCo v3 momentum contrast
 │   │   │   ├── mae.py                 # Masked Autoencoder
 │   │   │   ├── dino_v2.py             # DINOv2 self-distillation
+│   │   │   ├── vicreg.py              # VICReg variance-invariance-covariance
 │   │   │   └── registry.py            # SSL model factory
 │   │   ├── heads/
 │   │   │   └── projection.py          # MLP, SimCLR, MoCo heads
@@ -1154,7 +1299,7 @@ CropSSL/
 │   │   ├── logging.py                 # Structured logging
 │   │   └── reproducibility.py         # Seed-based determinism
 │   └── tests/
-│       └── test_all.py                # 248 tests (all passing)
+│       └── test_all.py                # 266 tests (all passing)
 ├── assets/logo.png
 ├── requirements.txt
 ├── pyproject.toml
@@ -1203,7 +1348,7 @@ Every push to `main` runs three automated checks via GitHub Actions
 | Job | What runs |
 |-----|-----------|
 | **checks** | `compileall` syntax gate + import smoke-test of all 51 modules + secret scan |
-| **test** | The full **248-test** suite (`pytest crop_ssl/tests/test_all.py`) |
+| **test** | The full **266-test** suite (`pytest crop_ssl/tests/test_all.py`) |
 | **docker** | Verifies the Docker image builds (on `main`) |
 
 Badge status shows directly under the project title. Run everything locally

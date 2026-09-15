@@ -471,13 +471,14 @@ def test_balanced_sampler():
 def test_ssl_factory():
     from crop_ssl.models.ssl import create_ssl_model, get_ssl_model_info
     info = get_ssl_model_info()
-    assert len(info) == 4
+    assert len(info) == 5
     assert "dinov2" in info
     assert "moco_v3" in info
     assert "simclr" in info
     assert "mae" in info
+    assert "vicreg" in info
 
-    for method in ["dinov2", "moco_v3", "simclr", "mae"]:
+    for method in ["dinov2", "moco_v3", "simclr", "mae", "vicreg"]:
         model = create_ssl_model(method, backbone="vit_small", embed_dim=384)
         assert model is not None
 
@@ -1794,7 +1795,7 @@ def test_download_data_list():
 def test_multiple_ssl_methods_factory():
     """Test creating all SSL methods with all backbone sizes."""
     from crop_ssl.models.ssl import create_ssl_model
-    for method in ["dinov2", "moco_v3", "simclr", "mae"]:
+    for method in ["dinov2", "moco_v3", "simclr", "mae", "vicreg"]:
         for backbone, dim in [("vit_small", 384), ("vit_base", 768)]:
             model = create_ssl_model(method, backbone=backbone, embed_dim=dim)
             assert model is not None
@@ -1998,14 +1999,12 @@ def test_state_dict_roundtrip_dino():
 
 
 def test_multiple_ssl_methods_forward():
-    """All 4 SSL methods should produce valid losses."""
+    """All 5 SSL methods should produce valid losses."""
     from crop_ssl.models.ssl import create_ssl_model
-    for method in ["simclr", "moco_v3", "mae", "dinov2"]:
+    for method in ["simclr", "moco_v3", "mae", "dinov2", "vicreg"]:
         model = create_ssl_model(method, backbone="vit_small", embed_dim=384)
         model.eval()
-        if method == "simclr":
-            result = model(torch.randn(2, 3, 224, 224), torch.randn(2, 3, 224, 224))
-        elif method == "moco_v3":
+        if method in ("simclr", "moco_v3", "vicreg"):
             result = model(torch.randn(2, 3, 224, 224), torch.randn(2, 3, 224, 224))
         elif method == "mae":
             result = model(torch.randn(2, 3, 224, 224))
@@ -2395,14 +2394,14 @@ def test_checkpoint_metadata():
 def test_all_ssl_methods_trainable():
     """Verify all SSL methods can be trained (backward + step)."""
     from crop_ssl.models.ssl import create_ssl_model
-    methods = ["simclr", "mae", "dinov2", "moco_v3"]
+    methods = ["simclr", "mae", "dinov2", "moco_v3", "vicreg"]
     for method in methods:
         model = create_ssl_model(method, backbone="vit_small", embed_dim=384)
         model.train()
         optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
         optimizer.zero_grad()
         x = torch.randn(4, 3, 224, 224)
-        if method in ("simclr", "moco_v3"):
+        if method in ("simclr", "moco_v3", "vicreg"):
             result = model(x, torch.randn_like(x))
         elif method == "mae":
             result = model(x)
@@ -3458,6 +3457,361 @@ def test_all_datasets_have_num_classes():
     print("    Dataset num_classes: all accessible ✓")
 
 
+def test_dataset_quarantine_excludes_corrupt_files():
+    """Corrupt files must be excluded + logged, never masked as placeholders."""
+    import tempfile
+    from PIL import Image as PILImage
+    import numpy as np
+    from crop_ssl.data.datasets import DATASET_REGISTRY
+    with tempfile.TemporaryDirectory() as tmp:
+        pv = Path(tmp) / "PlantVillage" / "colored"
+        for cls in ("A_cls", "B_cls", "C_cls"):
+            d = pv / cls
+            d.mkdir(parents=True)
+            for i in range(6):
+                PILImage.fromarray(
+                    np.random.randint(0, 255, (64, 64, 3), dtype=np.uint8)
+                ).save(d / f"img_{i}.jpg")
+        (pv / "A_cls" / "img_0.jpg").write_bytes(b"not-an-image")
+        (pv / "B_cls" / "img_3.jpg").write_bytes(b"\xff\xd8\xff\xe0truncated")
+        ds = DATASET_REGISTRY["plantvillage"](root=tmp, split=None)
+        assert len(ds.quarantined) == 2, f"expected 2 quarantined, got {len(ds.quarantined)}"
+        assert len(ds) == 16, f"18 files - 2 corrupt = 16, got {len(ds)}"
+        # Quarantined paths must not appear in the live sample list
+        live = {str(p) for p, _ in ds.samples}
+        for q in ds.quarantined:
+            assert q.path not in live, f"quarantined file still sampled: {q.path}"
+
+
+def test_dataset_quarantine_before_split_keeps_split_consistent():
+    """Quarantine must run before the split: splits partition the kept set."""
+    import tempfile
+    from PIL import Image as PILImage
+    import numpy as np
+    from crop_ssl.data.datasets import DATASET_REGISTRY
+    with tempfile.TemporaryDirectory() as tmp:
+        pv = Path(tmp) / "PlantVillage" / "colored"
+        for cls in ("A_cls", "B_cls", "C_cls"):
+            d = pv / cls
+            d.mkdir(parents=True)
+            for i in range(8):
+                PILImage.fromarray(
+                    np.random.randint(0, 255, (64, 64, 3), dtype=np.uint8)
+                ).save(d / f"img_{i}.jpg")
+        for bad in ("img_0.jpg", "img_1.jpg", "img_2.jpg"):
+            (pv / "A_cls" / bad).write_bytes(b"corrupt")
+        sizes = {}
+        for split in (None, "train", "val", "test"):
+            ds = DATASET_REGISTRY["plantvillage"](root=tmp, split=split)
+            sizes[split] = len(ds)
+        assert sizes[None] == 21, f"24 files - 3 corrupt = 21, got {sizes[None]}"
+        assert sizes["train"] + sizes["val"] + sizes["test"] == sizes[None], (
+            "split sizes must sum to the quarantined total (filter-before-split)"
+        )
+
+
+def test_dataset_getitem_raises_on_missing_file():
+    """No silent placeholders: __getitem__ must raise on unreadable files."""
+    import tempfile
+    from PIL import Image as PILImage
+    import numpy as np
+    from crop_ssl.data.datasets import DATASET_REGISTRY
+    with tempfile.TemporaryDirectory() as tmp:
+        pv = Path(tmp) / "PlantVillage" / "colored"
+        d = pv / "A_cls"
+        d.mkdir(parents=True)
+        for i in range(4):
+            PILImage.fromarray(
+                np.random.randint(0, 255, (64, 64, 3), dtype=np.uint8)
+            ).save(d / f"img_{i}.jpg")
+        ds = DATASET_REGISTRY["plantvillage"](root=tmp, split=None)
+        target = ds.samples[0][0]
+        target.unlink()
+        try:
+            ds[0]
+            raise AssertionError("expected an error for a missing file, not a placeholder")
+        except (OSError, FileNotFoundError, UnboundLocalError):
+            pass
+
+
+def test_import_zip_arranges_class_folder_zip():
+    """--import-zip must merge train/test class folders into the loader layout."""
+    import io
+    import tempfile
+    import zipfile
+    from PIL import Image as PILImage
+    import numpy as np
+    from crop_ssl.data.datasets import DATASET_REGISTRY
+    from crop_ssl.scripts.download_data import import_zip
+    with tempfile.TemporaryDirectory() as tmp:
+        zip_path = Path(tmp) / "pd.zip"
+        with zipfile.ZipFile(zip_path, "w") as z:
+            for split in ("train", "test"):
+                for ci, cls in enumerate(("Apple___Scab", "Tomato___Bacterial_spot")):
+                    for i in range(4):
+                        buf = io.BytesIO()
+                        PILImage.fromarray(np.random.default_rng(
+                            100 * ord(split[0]) + 10 * ci + i
+                        ).integers(0, 255, (32, 32, 3), dtype=np.uint8)).save(buf, "JPEG")
+                        z.writestr(f"wrapper/{split}/{cls}/img_{i}.jpg", buf.getvalue())
+        import_zip("plantdoc", str(zip_path), tmp)
+        ds = DATASET_REGISTRY["plantdoc"](root=tmp, split=None)
+        assert len(ds) == 8, f"expected 8 imported images, got {len(ds)}"
+        assert ds.num_classes == 2
+
+
+def test_import_zip_rejects_unknown_dataset():
+    """Datasets without an import layout must fail loudly, not guess."""
+    import tempfile
+    from crop_ssl.scripts.download_data import import_zip
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            import_zip("not_a_dataset", str(Path(tmp) / "x.zip"), tmp)
+            raise AssertionError("expected ValueError for unknown dataset")
+        except ValueError:
+            pass
+
+
+def test_import_zip_rejects_zip_slip():
+    """Malicious archive paths must be rejected before extraction."""
+    import tempfile
+    import zipfile
+    from crop_ssl.scripts.download_data import import_zip
+    with tempfile.TemporaryDirectory() as tmp:
+        zip_path = Path(tmp) / "evil.zip"
+        with zipfile.ZipFile(zip_path, "w") as z:
+            z.writestr("../pwned.txt", b"x")
+        try:
+            import_zip("plantdoc", str(zip_path), tmp)
+            raise AssertionError("expected ValueError for zip-slip path")
+        except ValueError:
+            pass
+        assert not (Path(tmp) / "pwned.txt").exists()
+
+
+def test_import_zip_removes_synthetic_fallback():
+    """Importing real data must delete leftover synthetic_* files so the
+    two can never mix under real class labels (audit finding)."""
+    import io
+    import tempfile
+    import zipfile
+    from PIL import Image as PILImage
+    import numpy as np
+    from crop_ssl.data.datasets import DATASET_REGISTRY
+    from crop_ssl.scripts.download_data import import_zip
+    with tempfile.TemporaryDirectory() as tmp:
+        fallback = Path(tmp) / "PlantDoc" / "Apple___Scab"
+        fallback.mkdir(parents=True)
+        PILImage.fromarray(
+            np.random.randint(0, 255, (32, 32, 3), dtype=np.uint8)
+        ).save(fallback / "synthetic_0000.jpg")
+        # A second fallback class that receives NO real data: its folder
+        # must not linger as an empty class after import.
+        synthetic_only = Path(tmp) / "PlantDoc" / "Potato___Late_blight"
+        synthetic_only.mkdir(parents=True)
+        PILImage.fromarray(
+            np.random.randint(0, 255, (32, 32, 3), dtype=np.uint8)
+        ).save(synthetic_only / "synthetic_0000.jpg")
+        zip_path = Path(tmp) / "pd.zip"
+        with zipfile.ZipFile(zip_path, "w") as z:
+            for i in range(3):
+                buf = io.BytesIO()
+                PILImage.fromarray(np.random.default_rng(i).integers(
+                    0, 255, (32, 32, 3), dtype=np.uint8
+                )).save(buf, "JPEG")
+                z.writestr(f"Apple___Scab/real_{i}.jpg", buf.getvalue())
+        import_zip("plantdoc", str(zip_path), tmp)
+        assert not (fallback / "synthetic_0000.jpg").exists(), (
+            "synthetic fallback must be removed before importing real data"
+        )
+        assert not synthetic_only.exists(), (
+            "class folder emptied by the cleanup must not linger as an "
+            "empty class in later audits"
+        )
+        assert {p.name for p in fallback.iterdir()} == {
+            "real_0.jpg", "real_1.jpg", "real_2.jpg"
+        }, "refilled class folder must contain only real files"
+        ds = DATASET_REGISTRY["plantdoc"](root=tmp, split=None)
+        assert len(ds) == 3, f"expected only real files, got {len(ds)}"
+        assert ds.num_classes == 1, f"only the real class should remain, got {ds.classes}"
+
+
+def test_import_zip_plantvillage_bucket_layout():
+    """PV archives with named image-type buckets map to the loader paths."""
+    import io
+    import tempfile
+    import zipfile
+    from PIL import Image as PILImage
+    import numpy as np
+    from crop_ssl.data.datasets import DATASET_REGISTRY
+    from crop_ssl.scripts.download_data import import_zip
+    with tempfile.TemporaryDirectory() as tmp:
+        zip_path = Path(tmp) / "pv.zip"
+        with zipfile.ZipFile(zip_path, "w") as z:
+            for i in range(3):
+                buf = io.BytesIO()
+                PILImage.fromarray(np.random.default_rng(i).integers(
+                    0, 255, (32, 32, 3), dtype=np.uint8
+                )).save(buf, "JPEG")
+                z.writestr(f"PlantVillage-master/color/Tomato___healthy/t{i}.jpg",
+                           buf.getvalue())
+                z.writestr(f"PlantVillage-master/grayscale/Tomato___healthy/g{i}.jpg",
+                           buf.getvalue())
+                z.writestr(f"PlantVillage-master/segmented/Tomato___healthy/s{i}.png",
+                           buf.getvalue())
+        import_zip("plantvillage", str(zip_path), tmp)
+        base = Path(tmp) / "PlantVillage"
+        assert (base / "colored" / "Tomato___healthy").is_dir()
+        assert len(list((base / "colored" / "Tomato___healthy").glob("*.jpg"))) == 3
+        assert len(list((base / "grayscale" / "Tomato___healthy").glob("*.jpg"))) == 3
+        assert len(list((base / "segmented" / "Tomato___healthy").glob("*.png"))) == 3
+        ds = DATASET_REGISTRY["plantvillage"](root=tmp, split=None)
+        assert len(ds) == 3  # loader scans colored/ only by default
+
+
+def test_import_zip_plantvillage_bare_class_folders():
+    """Bare class-folder PV archives (e.g. color.zip extract) land in colored/."""
+    import io
+    import tempfile
+    import zipfile
+    from PIL import Image as PILImage
+    import numpy as np
+    from crop_ssl.data.datasets import DATASET_REGISTRY
+    from crop_ssl.scripts.download_data import import_zip
+    with tempfile.TemporaryDirectory() as tmp:
+        zip_path = Path(tmp) / "pv.zip"
+        with zipfile.ZipFile(zip_path, "w") as z:
+            for ci, cls in enumerate(("Tomato___healthy", "Potato___Early_blight")):
+                for i in range(4):
+                    buf = io.BytesIO()
+                    PILImage.fromarray(np.random.default_rng(
+                        10 * ci + i
+                    ).integers(0, 255, (32, 32, 3), dtype=np.uint8)).save(buf, "JPEG")
+                    z.writestr(f"pv/{cls}/img_{i}.jpg", buf.getvalue())
+        import_zip("plantvillage", str(zip_path), tmp)
+        ds = DATASET_REGISTRY["plantvillage"](root=tmp, split=None)
+        assert len(ds) == 8, f"expected 8 images, got {len(ds)}"
+        assert ds.num_classes == 2
+        assert {c for c in ds.classes} == {
+            "Potato___Early_blight", "Tomato___healthy"
+        }
+
+
+def test_verify_import_passes_clean_data():
+    """--verify must report healthy (True) for a clean imported dataset."""
+    import io
+    import tempfile
+    from PIL import Image as PILImage
+    import numpy as np
+    from crop_ssl.scripts.download_data import verify_import
+    with tempfile.TemporaryDirectory() as tmp:
+        base = Path(tmp) / "PlantDoc"
+        seed = 0
+        for cls in ("Apple___Scab", "Tomato___Bacterial_spot", "Potato___Late_blight"):
+            d = base / cls
+            d.mkdir(parents=True)
+            for i in range(4):
+                buf = io.BytesIO()
+                PILImage.fromarray(np.random.default_rng(seed).integers(
+                    0, 255, (32, 32, 3), dtype=np.uint8
+                )).save(buf, "JPEG")
+                (d / f"img_{i}.jpg").write_bytes(buf.getvalue())
+                seed += 1  # unique content per file: no dupes, no leakage
+        assert verify_import("plantdoc", tmp) is True
+
+
+def test_verify_import_fails_on_split_leakage():
+    """--verify must fail (False) when identical bytes land in multiple splits."""
+    import io
+    import tempfile
+    from PIL import Image as PILImage
+    import numpy as np
+    from crop_ssl.scripts.download_data import verify_import
+    with tempfile.TemporaryDirectory() as tmp:
+        base = Path(tmp) / "PlantDoc"
+        payload = None
+        for cls in ("Apple___Scab", "Tomato___Bacterial_spot", "Potato___Late_blight"):
+            d = base / cls
+            d.mkdir(parents=True)
+            for i in range(4):
+                if payload is None:
+                    buf = io.BytesIO()
+                    PILImage.fromarray(np.random.default_rng(0).integers(
+                        0, 255, (32, 32, 3), dtype=np.uint8
+                    )).save(buf, "JPEG")
+                    payload = buf.getvalue()
+                (d / f"img_{i}.jpg").write_bytes(payload)  # identical bytes
+        assert verify_import("plantdoc", tmp) is False
+
+
+def test_verify_import_fails_when_data_missing():
+    """--verify must fail (False) when the dataset has no data at the root."""
+    import tempfile
+    from crop_ssl.scripts.download_data import verify_import
+    with tempfile.TemporaryDirectory() as tmp:
+        # plantvillage raises FileNotFoundError without data (no fallback
+        # creator), so data_present comes back False
+        assert verify_import("plantvillage", tmp) is False
+
+
+def test_dedupe_removes_duplicates_keeps_first_occurrence():
+    """--dedupe must delete duplicate bytes, keep the sorted-first path,
+    prune emptied class dirs, and leave unique files untouched."""
+    import io
+    import tempfile
+    from PIL import Image as PILImage
+    import numpy as np
+    from crop_ssl.scripts.download_data import dedupe_dataset
+    with tempfile.TemporaryDirectory() as tmp:
+        base = Path(tmp) / "PlantDoc"
+        def save(rel, seed):
+            d = base / rel
+            d.mkdir(parents=True, exist_ok=True)
+            buf = io.BytesIO()
+            PILImage.fromarray(np.random.default_rng(seed).integers(
+                0, 255, (32, 32, 3), dtype=np.uint8
+            )).save(buf, "JPEG")
+            (d / f"img_{seed}.jpg").write_bytes(buf.getvalue())
+        save("One", 0)            # original (kept)
+        save("Two", 0)            # duplicate of One -> removed
+        save("Two", 1)            # unique in Two -> kept
+        save("Three", 0)          # duplicate of One; only file -> dir pruned
+        removed = dedupe_dataset("plantdoc", tmp)
+        assert removed == 2, f"expected 2 removals, got {removed}"
+        assert (base / "One" / "img_0.jpg").exists()
+        assert len(list((base / "Two").iterdir())) == 1, "unique file must survive"
+        assert not (base / "Three").exists(), "emptied class dir must be pruned"
+        assert (Path(tmp) / "plantdoc-dedupe.log").exists()
+
+
+def test_dedupe_clean_data_returns_zero():
+    """--dedupe on duplicate-free data must remove nothing and write no log."""
+    import io
+    import tempfile
+    from PIL import Image as PILImage
+    import numpy as np
+    from crop_ssl.scripts.download_data import dedupe_dataset
+    with tempfile.TemporaryDirectory() as tmp:
+        base = Path(tmp) / "PlantDoc" / "One"
+        base.mkdir(parents=True)
+        for i in range(3):
+            buf = io.BytesIO()
+            PILImage.fromarray(np.random.default_rng(i).integers(
+                0, 255, (32, 32, 3), dtype=np.uint8
+            )).save(buf, "JPEG")
+            (base / f"img_{i}.jpg").write_bytes(buf.getvalue())
+        assert dedupe_dataset("plantdoc", tmp) == 0
+        assert not (Path(tmp) / "plantdoc-dedupe.log").exists()
+
+
+def test_dedupe_missing_target_returns_zero():
+    """--dedupe without imported data must be a no-op, not a crash."""
+    import tempfile
+    from crop_ssl.scripts.download_data import dedupe_dataset
+    with tempfile.TemporaryDirectory() as tmp:
+        assert dedupe_dataset("plantdoc", tmp) == 0
+
+
 def test_evaluation_suite_accumulation():
     """EvaluationSuite should correctly accumulate batches."""
     from crop_ssl.evaluation.metrics import EvaluationSuite
@@ -3792,10 +4146,13 @@ def test_auth_missing_secret_fails_closed():
         auth_mod.JWT_SECRET = saved
 
 
-def test_protected_routes_require_auth():
+def test_protected_routes_require_auth(monkeypatch):
     """Sensitive routes must 401 without a token and succeed with one."""
     from fastapi.testclient import TestClient
     from crop_ssl.backend.api import app
+    from crop_ssl.backend import auth as auth_mod
+    # Assert the no-bypass path regardless of an ambient CROPSSL_ALLOW_ANONYMOUS=1
+    monkeypatch.setattr(auth_mod, "ANONYMOUS_MODE", False)
     with TestClient(app) as client:
         checks = [
             ("post", "/registry/register?model_name=auth_probe", None),
@@ -4024,11 +4381,69 @@ def test_training_loop_supcon_one_epoch():
     print(f"    SupCon training step: loss {loss.item():.3f}, grads flow ✓")
 
 
-def test_api_key_grants_admin_access():
+def test_vicreg_forward_returns_loss_decomposition():
+    """VICReg forward must report the objective's three terms and finite loss."""
+    from crop_ssl.models.ssl.vicreg import VICReg
+    m = VICReg(backbone="vit_small", embed_dim=384, proj_dim=64)
+    x1, x2 = torch.randn(4, 3, 224, 224), torch.randn(4, 3, 224, 224)
+    result = m(x1, x2)
+    for key in ("loss", "invariance", "variance", "covariance"):
+        assert key in result, f"missing loss term '{key}'"
+        assert result[key].ndim == 0, f"'{key}' must be a scalar"
+        assert torch.isfinite(result[key]), f"'{key}' is not finite"
+    # Weighted sum must recombine into the reported total loss
+    expected = (m.sim_weight * result["invariance"]
+                + m.var_weight * result["variance"]
+                + m.cov_weight * result["covariance"])
+    assert torch.allclose(result["loss"], expected)
+    # Identical views: invariance term must be ~0 while the variance
+    # hinge stays active (anti-collapse regularization doing its job)
+    collapsed = m(x1, x1)
+    assert float(collapsed["invariance"]) < 1e-5
+    assert float(collapsed["variance"]) > 0.0
+
+
+def test_vicreg_backward_and_trainable():
+    """VICReg must train end-to-end: backward reaches encoder, step works."""
+    from crop_ssl.models.ssl import create_ssl_model
+    model = create_ssl_model("vicreg", backbone="vit_small", embed_dim=384)
+    opt = torch.optim.Adam(model.parameters(), lr=1e-4)
+    model.train()
+    images = torch.randn(4, 3, 224, 224)
+    result = model(images, torch.randn_like(images))
+    result["loss"].backward()
+    n_with_grad = sum(1 for p in model.parameters() if p.grad is not None)
+    assert n_with_grad > 0, "VICReg backward produced no gradients"
+    opt.step()
+    opt.zero_grad()
+    assert torch.isfinite(result["loss"])
+
+
+def test_training_loop_vicreg_dispatch():
+    """Two-view scripts/APIs must dispatch vicreg like simclr (factory-level)."""
+    from crop_ssl.models.ssl import create_ssl_model
+    model = create_ssl_model("vicreg", backbone="vit_small", embed_dim=384)
+    model.eval()
+    images = torch.randn(2, 3, 224, 224)
+    # Same call shape the training loops use for the (simclr, moco_v3, vicreg)
+    # dispatch group.
+    result = model(images, torch.randn_like(images))
+    assert "loss" in result and result["loss"].ndim == 0
+    # Unknown method must still fail loudly at the factory
+    try:
+        create_ssl_model("not_a_method")
+        raise AssertionError("expected ValueError for unknown SSL method")
+    except ValueError:
+        pass
+
+
+def test_api_key_grants_admin_access(monkeypatch):
     """CROPSSL_API_KEY callers must pass protected routes without a login."""
     from fastapi.testclient import TestClient
     import crop_ssl.backend.api as api_mod
     from crop_ssl.backend import auth as auth_mod
+    # Header-less requests must 401 below even if CROPSSL_ALLOW_ANONYMOUS=1 is ambient
+    monkeypatch.setattr(auth_mod, "ANONYMOUS_MODE", False)
     saved = auth_mod.API_KEY
     auth_mod.API_KEY = "sk-audit-test-key-123"
     try:

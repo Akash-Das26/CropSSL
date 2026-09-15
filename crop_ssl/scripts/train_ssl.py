@@ -50,6 +50,9 @@ def get_ssl_transforms(method: str, image_size: int = 224):
         )
     elif method == "simclr":
         return SimCLRTransform(size=image_size)
+    elif method == "vicreg":
+        # Two independent augmented views, same as SimCLR
+        return SimCLRTransform(size=image_size)
     elif method == "moco_v3":
         return MoCoTransform(size=image_size)
     elif method == "mae":
@@ -88,7 +91,7 @@ def train_one_epoch_ssl(
             result = model(crops)
             loss = result["loss"]
 
-        elif method in ("simclr", "moco_v3"):
+        elif method in ("simclr", "moco_v3", "vicreg"):
             view_1, view_2 = images[0].to(device), images[1].to(device)
             result = model(view_1, view_2)
             loss = result["loss"]
@@ -147,7 +150,7 @@ def main():
     )
     parser.add_argument(
         "--method", type=str, default="dinov2",
-        choices=["dinov2", "moco_v3", "simclr", "mae"],
+        choices=["dinov2", "moco_v3", "simclr", "mae", "vicreg"],
         help="SSL method to use",
     )
     parser.add_argument(

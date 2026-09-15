@@ -93,7 +93,7 @@ def stage_1_ssl_pretraining(
         for images, _ in train_loader:
             images = images.to(device)
 
-            if method in ("simclr", "moco_v3"):
+            if method in ("simclr", "moco_v3", "vicreg"):
                 # Create two augmented views (simplified: use random augment)
                 view2 = torch.randn_like(images)
                 result = model(images, view2)
@@ -130,7 +130,7 @@ def stage_1_ssl_pretraining(
         with torch.no_grad():
             for images, _ in val_loader:
                 images = images.to(device)
-                if method in ("simclr", "moco_v3"):
+                if method in ("simclr", "moco_v3", "vicreg"):
                     view2 = torch.randn_like(images)
                     result = model(images, view2)
                 elif method == "mae":
@@ -403,7 +403,7 @@ def generate_report(all_results: Dict[str, Any], output_path: str):
 def main():
     parser = argparse.ArgumentParser(description="CropSSL Full Pipeline")
     parser.add_argument("--method", type=str, default="simclr",
-                        choices=["simclr", "dinov2", "moco_v3", "mae"])
+                        choices=["simclr", "dinov2", "moco_v3", "mae", "vicreg"])
     parser.add_argument("--backbone", type=str, default="vit_small",
                         choices=["vit_small", "vit_base", "vit_large"])
     parser.add_argument("--epochs", type=int, default=3)

@@ -24,6 +24,11 @@ import torchvision.transforms as transforms
 from torch.utils.data import Dataset
 from PIL import Image
 
+from crop_ssl.data.datasets._validation import (
+    quarantine_corrupt,
+    quarantine_pairs,
+)
+
 
 class PlantSegDataset(Dataset):
     """PlantSeg dataset — pixel-level disease segmentation.
@@ -119,6 +124,26 @@ class PlantSegDataset(Dataset):
         self.mask_samples: list[Tuple[Path, Path, int]] = []
         self._load_samples()
 
+        # Quarantine unusable files BEFORE the split, so split indices stay
+        # in sync with what is iterable. Segmentation mode needs BOTH image
+        # and mask readable; classification mode only probes the image.
+        # Corrupt files are excluded + logged, never silently replaced by
+        # placeholder images at __getitem__ time.
+        self.quarantined: list = []
+        if self.mode == "segmentation":
+            self.mask_samples, self.quarantined = quarantine_pairs(
+                self.mask_samples
+            )
+            self.samples = [
+                (img, label) for img, _mask, label in self.mask_samples
+            ]
+        else:
+            self.samples, self.quarantined = quarantine_corrupt(self.samples)
+            survivors = {img for img, _ in self.samples}
+            self.mask_samples = [
+                p for p in self.mask_samples if p[0] in survivors
+            ]
+
         # Deterministic split
         if self.samples:
             rng = torch.Generator().manual_seed(42)
@@ -201,10 +226,14 @@ class PlantSegDataset(Dataset):
 
     def _create_synthetic(self):
         """Create synthetic dataset for testing."""
+        import zlib
         import numpy as np
 
         self.images_dir.mkdir(parents=True, exist_ok=True)
         self.masks_dir.mkdir(parents=True, exist_ok=True)
+        # Per-dataset seed: see plantvillage.py — shared global RNG state made
+        # fallback bytes collide across datasets and depend on call order.
+        np.random.seed(zlib.crc32(type(self).__name__.encode()) % (2**32))
 
         for i, cls_name in enumerate(self.class_names[:min(20, len(self.class_names))]):
             for j in range(20):
@@ -234,14 +263,13 @@ class PlantSegDataset(Dataset):
     def __getitem__(self, idx: int):
         if self.mode == "segmentation" and idx < len(self.mask_samples):
             img_path, mask_path, label = self.mask_samples[idx]
-            try:
-                image = Image.open(img_path).convert("RGB")
-                mask = Image.open(mask_path)
-                if mask.mode != "L":
-                    mask = mask.convert("L")
-            except Exception:
-                image = Image.new("RGB", (224, 224), (128, 128, 128))
-                mask = Image.new("L", (224, 224), 0)
+            # Unusable pairs are excluded at init (see self.quarantined);
+            # a failure here means files vanished mid-session and should
+            # raise, not become silent placeholders.
+            image = Image.open(img_path).convert("RGB")
+            mask = Image.open(mask_path)
+            if mask.mode != "L":
+                mask = mask.convert("L")
 
             if self.transform:
                 image = self.transform(image)
@@ -256,10 +284,10 @@ class PlantSegDataset(Dataset):
 
         else:
             img_path, label = self.samples[idx]
-            try:
-                image = Image.open(img_path).convert("RGB")
-            except Exception:
-                image = Image.new("RGB", (224, 224), (128, 128, 128))
+            # Corrupt files are excluded at init (see self.quarantined); a
+            # failure here means the file vanished mid-session and should
+            # raise, not become a silent placeholder.
+            image = Image.open(img_path).convert("RGB")
 
             if self.transform:
                 image = self.transform(image)
