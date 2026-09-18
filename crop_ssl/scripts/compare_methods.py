@@ -32,7 +32,7 @@ from crop_ssl.evaluation.metrics import (
 from crop_ssl.utils.reproducibility import set_seed
 
 
-SSL_METHODS = ["dinov2", "moco_v3", "simclr", "mae"]
+SSL_METHODS = ["dinov2", "moco_v3", "simclr", "mae", "vicreg"]
 ADAPTATION_METHODS = ["linear", "lora", "prototypical"]
 BACKBONES = {"vit_small": 384, "vit_base": 768, "vit_large": 1024}
 
@@ -97,7 +97,7 @@ def benchmark_ssl_method(
                     for _ in range(9)
                 ]
                 result = model(crops)
-            elif method in ("simclr", "moco_v3"):
+            elif method in ("simclr", "moco_v3", "vicreg"):
                 result = model(images, torch.randn_like(images))
             elif method == "mae":
                 result = model(images)
@@ -154,7 +154,7 @@ def benchmark_adaptation(
     model.train()
     for images, _ in source_loader:
         images = images.to(device)
-        if ssl_method in ("simclr", "moco_v3"):
+        if ssl_method in ("simclr", "moco_v3", "vicreg"):
             result = model(images, torch.randn_like(images))
         elif ssl_method == "mae":
             result = model(images)
@@ -244,8 +244,15 @@ def run_benchmark(
     device: str = "cpu",
     backbone: str = "vit_small",
     quick: bool = True,
+    resume: bool = False,
 ):
-    """Run full benchmark."""
+    """Run full benchmark.
+
+    With resume=True, previously computed cells (matching method/adaptation
+    AND the full run config) are loaded from the existing
+    benchmark_results.json instead of being re-run; only missing cells are
+    computed. Results are always written back so a run can be continued.
+    """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -253,13 +260,46 @@ def run_benchmark(
     num_classes = 5
     epochs = 2 if quick else 10
 
+    run_config = {
+        "backbone": backbone,
+        "embed_dim": embed_dim,
+        "num_classes": num_classes,
+        "device": device,
+        "epochs": epochs,
+    }
+
     print("=" * 60)
     print("CropSSL Benchmark Suite")
     print("=" * 60)
     print(f"Backbone: {backbone} (dim={embed_dim})")
     print(f"Device: {device}")
     print(f"Quick mode: {quick}")
+    print(f"Resume: {resume}")
     print()
+
+    # Resume cache: only reused when the stored config matches this run exactly
+    cached_ssl: Dict[str, dict] = {}
+    cached_adapt: Dict[tuple, dict] = {}
+    if resume:
+        cache_file = output_dir / "benchmark_results.json"
+        if cache_file.exists():
+            try:
+                with open(cache_file) as f:
+                    prev = json.load(f)
+                if prev.get("config") == run_config:
+                    cached_ssl = {
+                        r["method"]: r for r in prev.get("ssl_comparison", [])
+                    }
+                    cached_adapt = {
+                        (r["ssl_method"], r["adaptation"]): r
+                        for r in prev.get("adaptation_comparison", [])
+                    }
+                    print(f"Resume: loaded {len(cached_ssl)} SSL + "
+                          f"{len(cached_adapt)} adaptation cached cells")
+                else:
+                    print("Resume: cache config mismatch — starting fresh")
+            except (json.JSONDecodeError, KeyError, TypeError):
+                print("Resume: unreadable cache — starting fresh")
 
     # Create data
     print("Creating synthetic data...")
@@ -273,6 +313,11 @@ def run_benchmark(
     print("\n--- SSL Method Comparison ---")
     ssl_results = []
     for method in SSL_METHODS:
+        if method in cached_ssl:
+            print(f"  Benchmarking {method}... cached (loss="
+                  f"{cached_ssl[method]['final_loss']:.4f})")
+            ssl_results.append(cached_ssl[method])
+            continue
         print(f"  Benchmarking {method}...", end=" ", flush=True)
         result = benchmark_ssl_method(
             method, backbone, embed_dim, source_loader,
@@ -286,6 +331,11 @@ def run_benchmark(
     adapt_results = []
     for method in SSL_METHODS[:2]:  # Test with top 2 SSL methods
         for adaptation in ADAPTATION_METHODS:
+            if (method, adaptation) in cached_adapt:
+                print(f"  {method} + {adaptation}... cached "
+                      f"(acc={cached_adapt[(method, adaptation)]['target_acc']:.1f}%)")
+                adapt_results.append(cached_adapt[(method, adaptation)])
+                continue
             print(f"  {method} + {adaptation}...", end=" ", flush=True)
             result = benchmark_adaptation(
                 method, backbone, embed_dim, adaptation,
@@ -298,12 +348,7 @@ def run_benchmark(
     all_results = {
         "ssl_comparison": ssl_results,
         "adaptation_comparison": adapt_results,
-        "config": {
-            "backbone": backbone,
-            "embed_dim": embed_dim,
-            "num_classes": num_classes,
-            "device": device,
-        },
+        "config": run_config,
     }
 
     results_file = output_dir / "benchmark_results.json"
@@ -338,6 +383,9 @@ def main():
     parser.add_argument("--device", type=str, default="cpu")
     parser.add_argument("--quick", action="store_true",
                         help="Quick benchmark (fewer epochs)")
+    parser.add_argument("--resume", action="store_true",
+                        help="Skip cells already present in benchmark_results.json "
+                             "(config must match); results are merged and rewritten")
     args = parser.parse_args()
 
     run_benchmark(
@@ -346,6 +394,7 @@ def main():
         device=args.device,
         backbone=args.backbone,
         quick=args.quick,
+        resume=args.resume,
     )
 
 

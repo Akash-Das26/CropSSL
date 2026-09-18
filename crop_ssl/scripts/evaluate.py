@@ -190,7 +190,7 @@ def main():
     parser.add_argument("--checkpoint", type=str, required=True)
     parser.add_argument(
         "--method", type=str, default="dinov2",
-        choices=["dinov2", "moco_v3", "simclr", "mae"],
+        choices=["dinov2", "moco_v3", "simclr", "mae", "vicreg"],
     )
     parser.add_argument("--backbone", type=str, default="vit_base")
     parser.add_argument(

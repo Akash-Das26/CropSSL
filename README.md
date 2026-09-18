@@ -9,7 +9,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/PyTorch-2.0+-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white" alt="PyTorch">
-  <img src="https://img.shields.io/badge/Tests-224%20✅-brightgreen?style=for-the-badge" alt="Tests">
+  <img src="https://img.shields.io/badge/Tests-266%20✅-brightgreen?style=for-the-badge" alt="Tests">
   <img src="https://img.shields.io/badge/SSL-4%20Methods-blueviolet?style=for-the-badge" alt="SSL">
   <img src="https://img.shields.io/badge/Datasets-13-teal?style=for-the-badge" alt="Datasets">
   <img src="https://img.shields.io/badge/API-52%20Endpoints-orange?style=for-the-badge" alt="API">
@@ -138,10 +138,16 @@ ViT-B/16   ███████████████████████
 | **MoCo v3** | 54.4M | 384 | 38.8 ms | 121.2 ms | 2 encoders + 65K queue |
 | **MAE** | 47.6M | 384 | 47.7 ms | 55.8 ms | encoder + 8L decoder |
 | **DINOv2** | 250.7M | 384 | 36.7 ms | 436.7 ms | 2 encoders + 10 crops |
+| **VICReg** | 22.7M | 384 | 40.4 ms | 80.2 ms | 1 encoder |
 
 > Parameter counts are the **actual `create_ssl_model(...)` numbers** (e.g.
 > DINOv2 = student + teacher ViT-S). Full-forward for DINOv2 includes its
 > native multi-crop (1×224 + 9×96 views); all other models use single view.
+> VICReg was measured 2026-09-15 under the same protocol (CPU, eval, batch 1,
+> 224×224) in an interleaved run with SimCLR as calibration; in that run
+> SimCLR reproduced at 40.3 / 79.9 ms — 12%/6% above the older SimCLR row —
+> so VICReg's absolute values carry the same upward drift (its measured cost
+> is within 1% of SimCLR's, as expected for an identical encoder + head).
 
 ### Quick-Benchmark Run (real output of `compare_methods --quick`, 2 epochs, synthetic 5-class)
 
@@ -278,7 +284,7 @@ shift, not just accuracy.
 
 ---
 
-## 🧪 Test Suite: 224/224 Passing
+## 🧪 Test Suite: 266/266 Passing
 
 ```
 pytest crop_ssl/tests/test_all.py
@@ -552,6 +558,25 @@ pipeline is exercised end-to-end by the test suite
 
 ### Install
 
+**Option A — one-line deploy** (clone + venv + deps + editable install + import smoke test,
+safe to re-run — updates an existing clone and reuses the venv):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/officialarghya29/CropSSL/main/install.sh | bash
+```
+
+Already have the repo? Both forms work from inside a checkout:
+
+```bash
+bash install.sh          # install in place (./venv)
+bash install.sh ~/crops  # fresh install at a target directory
+```
+
+> ⚠️ The venv can't stay activated after `curl | bash` — activate it with
+> `cd CropSSL && source venv/bin/activate` when the script finishes (it prints this reminder).
+
+**Option B — manual** (exactly the steps `install.sh` performs):
+
 ```bash
 git clone https://github.com/officialarghya29/CropSSL.git
 cd CropSSL
@@ -560,7 +585,8 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
-> 💡 All commands use `python3`. On most systems `python` is an alias that also works —
+> 💡 Both options take several minutes on first run (torch is a large download).
+> All commands use `python3`. On most systems `python` is an alias that also works —
 > if you get `python: command not found`, just use `python3`.
 
 ### Run the Pipeline (all verified end-to-end)
@@ -579,7 +605,7 @@ python3 -m crop_ssl.scripts.evaluate \
     --source_dataset rice_leaf --target_dataset coffee_leaf \
     --adaptation_method linear --k_shot 5 --device cpu
 
-# Compare all 4 SSL methods + adaptation strategies
+# Compare all 5 SSL methods + adaptation strategies
 python3 -m crop_ssl.scripts.compare_methods --quick
 
 # Few-shot k-NN / nearest-centroid classifier on SSL embeddings (PyTorch or ONNX)
@@ -595,6 +621,296 @@ python3 -m crop_ssl.scripts.download_data --synthetic
 # Run all tests
 python3 -m pytest crop_ssl/tests/test_all.py -v
 ```
+
+### Prediction Feedback Loop
+
+Every `POST /predict` response now includes a `prediction_id`. Send ground
+truth back to close the loop — it feeds the auto-retrain monitor and the
+drift detector automatically (no more manual `/auto-retrain/record` and
+`/drift/record` calls):
+
+```bash
+RESP=$(curl -s -X POST http://localhost:8000/predict -F "file=@leaf.jpg")
+PID=$(echo "$RESP" | python3 -c 'import sys,json; print(json.load(sys.stdin)["prediction_id"])')
+
+curl -X POST http://localhost:8000/feedback \
+     -H 'Content-Type: application/json' \
+     -d "{\"prediction_id\": \"$PID\", \"correct\": false, \"confidence\": 0.72}"
+# → {"status": "recorded", ...}; then watch /auto-retrain/stats and /drift/check
+```
+
+Prediction IDs live in an in-memory bounded log (10,000 entries, oldest
+evicted); if a log entry has already expired, pass `predicted_class` (and
+optionally `model_used`) explicitly. `GET /system/latency` reports per-route
+p50/p95 latency for capacity monitoring. Machine clients can authenticate
+with a static key: set `CROPSSL_API_KEY` on the server and send
+`X-API-Key: <key>` (or `Authorization: ApiKey <key>`).
+
+### SupCon Loss (supervised contrastive pre-training)
+
+When pair labels are available, SimCLR pre-training can use supervised
+contrastive loss (Khosla et al., 2020) via the existing factory:
+
+```python
+model = create_ssl_model("simclr", backbone="vit_small", embed_dim=384, loss="supcon")
+result = model(view_1, view_2, labels)   # labels: (B,) class ids for the batch
+```
+
+Default remains `loss="nt_xent"` (fully backward-compatible). Trade-off:
+SupCon needs labels per batch and same-label pairs to be present — anchors
+without positives are excluded from the loss.
+
+### VICReg (5th SSL method)
+
+VICReg (Bardes, Ponce & Lecun, ICLR 2022) closes the non-contrastive gap in
+the method lineup: like SimCLR it trains from two augmented views, but it
+needs no negative pairs, no momentum encoder, and no large-batch tricks.
+Collapse is prevented explicitly by a variance hinge (per-dimension std must
+stay above 1) and redundancy by a covariance hinge (off-diagonal
+covariances pushed to zero), alongside the mean-squared-error invariance
+term:
+
+```python
+model = create_ssl_model("vicreg", backbone="vit_small", embed_dim=384)
+result = model(view_1, view_2)   # dict: loss, invariance, variance, covariance
+```
+
+VICReg is available everywhere the other four methods are: the training
+scripts (`--method vicreg`), the benchmark sweep (`SSL_METHODS`), all API
+routes that take an SSL method, `/eval/knn`, and the dashboard dropdowns.
+Weights default to the paper's 25/25/25 for the invariance/variance/
+covariance terms (`sim_weight` / `var_weight` / `cov_weight` kwargs).
+Trade-off: two encoder passes per step (like SimCLR), and the variance /
+covariance hinges need batches large enough for stable batch statistics
+(tiny batches make the hinges noisy).
+
+### Resumable Benchmarks
+
+Interrupted benchmark sweeps can skip completed cells:
+
+```bash
+python3 -m crop_ssl.scripts.compare_methods --quick --resume
+```
+
+Cached cells are reused only when the stored run config (backbone, device,
+epochs) matches exactly; partial results are merged and rewritten to
+`benchmark_results.json`.
+
+### Dataset Integrity & Quarantine
+
+Dataset loaders no longer silently mask corrupt images. Unreadable files
+(garbage bytes, truncated JPEGs, zero-byte files) are **quarantined** at
+load time: excluded from the sample list and recorded with the reason in
+the loader's `.quarantined` attribute (one log line per file), so a real
+label can never point at a placeholder image. Quarantine runs **before**
+the deterministic split (seed=42), so `train + val + test` always equals
+the iterable total. `__getitem__` now raises if a file disappears
+mid-session instead of returning a gray placeholder.
+
+Audit any root — counts, class ordering, empty classes, duplicates and
+cross-split/cross-dataset leakage by content hash, image validity, and
+real-vs-synthetic divergence:
+
+```bash
+python3 -m crop_ssl.scripts.validate_datasets --root ./data --json report.json
+```
+
+Synthetic fallbacks are now deterministically seeded per dataset (previously
+they shared the global numpy RNG state, which made fallback bytes depend on
+call order and produced byte-identical files across different datasets).
+
+### Downloading Real Data
+
+Only **PlantVillage** and **Cassava Leaf** are auto-downloadable (HuggingFace,
+via `crop_ssl.scripts.download_data --dataset <name>`); the rest require manual
+download because of Kaggle ToS / account requirements.
+
+**Setup:** `pip install datasets kaggle` and put your `kaggle.json` API token
+in `~/.kaggle/` (Kaggle → Account → API).
+
+**Easiest path:** download a dataset's archive (Kaggle CLI, browser, git
+clone, Zenodo/Mendeley direct), then let the importer arrange it into the
+exact layout its loader expects:
+
+```bash
+# Kaggle example
+kaggle competitions download -c plant-pathology-2020-fgvc7 -p data/raw
+python3 -m crop_ssl.scripts.download_data \
+    --data_root ./data \
+    --import-zip plant_pathology data/raw/plant-pathology-2020-fgvc7.zip \
+    --verify
+# → extracts, arranges (train.csv + images/), removes leftover synthetic_*
+#   fallback files (and class folders it empties), then runs the integrity
+#   validator automatically
+```
+
+`--import-zip` (repeatable) knows each dataset's layout — class-folder merges
+(`plantdoc`, `rice_leaf`, `coffee_leaf`, `new_plant_diseases`, `icassava_2019`,
+`domainnet_plant`), CSV+images layouts (`plant_pathology`, `cassava_leaf`,
+`bracol`, `diamos_plant`), Roboflow exports (`field_plant`), image+mask
+pairs (`plant_seg`), and PlantVillage bundles — archives with named
+image-type buckets (`colored/` or `color/`, `grayscale/` or `gray/`,
+`segmented/` or `segmentation/`) map each bucket to its loader path, and
+bare class-folder extracts land in `PlantVillage/colored/` as a fallback
+when the auto-download mirrors are unreachable. It refuses malicious
+archive paths and reports name collisions instead of overwriting.
+
+**Manual sources & expected layouts:**
+
+| Dataset | Source | Arrange into (auto-done by `--import-zip`) |
+|---|---|---|
+| plantdoc | github.com/pratikkayal/PlantDoc-Dataset | `data/PlantDoc/<ClassName>/*.jpg` (train+test merged) |
+| plant_pathology | kaggle `plant-pathology-2020-fgvc7` | `data/PlantPathology/images/` + `train.csv` |
+| icassava_2019 | kaggle `cassava-disease` | `data/iCassava2019/train/<cbb\|cbsd\|cgm\|cmd\|healthy>/` |
+| new_plant_diseases | kaggle `emmarex/plantdisease` | `data/plant-disease/<ClassName>/` |
+| cassava_leaf | kaggle `cassava-leaf-disease-classification` (or auto HF) | `train_images/` + `train.csv` |
+| rice_leaf | search Kaggle "rice leaf disease" | `data/RiceLeaf/<bacterial_leaf_blight\|brown_spot\|leaf_blast\|leaf_blight\|leaf_scald\|narrow_brown_spot\|healthy>/` — missing folders are skipped, `num_classes` stays 7 |
+| coffee_leaf | no pinned source (prefer BRACOL) | `data/CoffeeLeaf/<healthy\|rust\|miner\|phoma\|cercospora>/` |
+| plant_seg | github.com/tqwei05/PlantSeg → Zenodo | `data/PlantSeg/images/` + `masks/<same-stem>.png` (+ `class_map.json`) |
+| field_plant | roboflow.com/universe *plant-disease-detection/fieldplant* (CSV export) | `data/FieldPlant/train/_annotations.csv` + images |
+| diamos_plant | zenodo DOI 10.5281/zenodo.5557313 | `data/DiaMOSPlant/images/` + `annotations.csv` (`image_id,disease,severity,growth_stage`) |
+| bracol | data.mendeley.com/datasets/yy2k5y8mxg/1 | `data/BRACOL/images/` + `metadata.csv` — class strings must match the 5 `CLASS_NAMES` exactly, else rows silently map to class 0 |
+| domainnet_plant | no public source (framework's simulated domains) | `data/DomainNetPlant/<studio\|greenhouse\|field\|mobile\|aerial>/<class>/` |
+| plantvillage | auto: HuggingFace `mohanty/PlantVillage` → Mendeley mirror; or `--import-zip plantvillage <archive.zip>` | `data/PlantVillage/<colored\|grayscale\|segmented>/<38 classes>/` (bare class-folder zips → `colored/`) |
+
+**After each download, audit it:**
+
+```bash
+python3 -m crop_ssl.scripts.validate_datasets --root ./data --dataset <name>
+```
+
+Or append `--verify` to an import command to do it automatically: it prints
+sample/class counts, warns about quarantined corrupt files, duplicate
+content, empty classes, tiny/zero-byte images, and cross-split leakage, and
+exits with code 2 when something needs attention (0 when the import is
+clean) — scriptable for batch imports.
+
+**Self-cleaning imports:** add `--dedupe` to remove duplicate-content images
+(same bytes) after each import, or run it standalone on already-imported
+data:
+
+```bash
+python3 -m crop_ssl.scripts.download_data --data_root ./data \
+    --import-zip plantdoc ~/Downloads/PlantDoc-Dataset.zip --dedupe --verify
+# or later, on data already imported:
+python3 -m crop_ssl.scripts.download_data --data_root ./data --dedupe --dataset plantdoc
+```
+
+The first occurrence in sorted path order is kept; every removal is printed
+and written to `data/<dataset>-dedupe.log` for manual re-adjudication —
+important because upstream duplicates are often **cross-class** (the same
+photo labeled as two different diseases, e.g. PlantDoc ships 9 such files:
+Corn Gray leaf spot ↔ Corn leaf blight, Potato early ↔ late blight), which
+is a label ambiguity as much as a duplicate. Class directories emptied by
+the removal are pruned. Removing duplicates also eliminates cross-split
+leakage when the leaked bytes are duplicates of each other.
+
+Real counts replace the fallback numbers (e.g. PlantVillage 38 classes, not
+3; PlantSeg 115, not 20). **Delete a dataset's synthetic fallback folder
+before unzipping real data into it** — `--import-zip` does this for you, but
+manual unzips must not mix fallback noise images with real class labels.
+
+### Few-Shot k-NN Evaluation from the API & Dashboard
+
+The training-free adaptation from `scripts/onnx_knn.py` is now also a backend
+route and a dashboard tab — all three surfaces share the same split and
+classifier code, so they always report identical numbers:
+
+```bash
+# Nearest-centroid (k=0) or k-NN vote (k>0) over SSL embeddings
+curl -X POST http://localhost:8000/eval/knn \
+     -H 'Content-Type: application/json' \
+     -d '{"method": "simclr", "backbone": "vit_small", "num_classes": 5, "shots": 5, "k": 0}'
+# → {"mode": "nearest-centroid", "accuracy": ..., "num_support": 25,
+#    "num_query": ..., "per_class": [...], "embedding_source": "registry:simclr_vit_small"}
+```
+
+- `data_root` (default `./data`) expects a `train/<class>/` image layout;
+  missing data falls back to the same structured synthetic split as the CLI.
+- Embeddings come from an already-loaded model (`registry:<name>`) when one
+  matches method/backbone, otherwise a transient model is built and cached
+  (bounded to 2 — a transient ViT-L is ~1.2 GB on CPU).
+- Runs synchronously like `/predict`; a `vit_large` eval on CPU can take tens
+  of seconds.
+- In the Streamlit dashboard: **Analysis → 🧮 Few-Shot k-NN** — pick method,
+  backbone, classes, shots, k, and data root; per-class accuracy is charted.
+
+### Offline On-Device k-NN (Mobile PWA)
+
+The mobile PWA can now run inference **fully offline** — no server, no signal:
+
+1. In the PWA's **Engine** tab, export a model to ONNX, then in the
+   **📴 Offline k-NN** card set the number of classes and tap
+   **Build k-NN Bundle** (server-side `POST /models/{name}/knn-bundle`).
+2. Tap **Load for Offline Use** — the PWA caches the pinned onnxruntime-web
+   runtime (WASM), the ONNX backbone, and the bundle JSON, then classifies
+   on-device.
+3. With a bundle loaded, `Scan` automatically falls back to on-device
+   inference whenever the backend is unreachable (results are tagged
+   `ANALYZED · OFFLINE`).
+
+```bash
+curl -X POST http://localhost:8000/models/simclr_vit_small/knn-bundle \
+     -H 'Content-Type: application/json' \
+     -d '{"num_classes": 5, "shots": 5, "k": 0}'
+# → {"status": "built", "path": "model_exports/simclr_vit_small-knn-bundle.json",
+#    "size_mb": ..., "mode": "nearest-centroid", "checked_with": ...}
+```
+
+- The bundle carries class centroids, raw support embeddings, class names,
+  and the preprocessing contract (224×224 + ImageNet mean/std) — the phone
+  reproduces `scripts/onnx_knn.py`'s exact math (cosine match, L2 at
+  classify time).
+- Embeddings are computed with the **same backbone flavor the bundle
+  exports** (`encoder.forward_features`): via onnxruntime when installed,
+  otherwise the PyTorch backbone (results are identical by construction).
+- Bundle size scales with classes × shots × embed_dim (a 5-class / 5-shot
+  ViT-S bundle is well under 1 MB alongside the ~90 MB ONNX).
+- Offline accuracy equals the nearest-centroid ceiling of the baked support
+  set — it does **not** match a trained-head model; trade quality for
+  connectivity independence.
+- `k > 0` is supported server-side; the PWA currently ships the
+  nearest-centroid path (k-NN vote is in `knn.js`'s `classifySync` for
+  future UI use).
+
+### Auth & Deployment (production hardening)
+
+Sensitive routes — model registry writes (`/registry/*`), checkpoint upload,
+model load/delete, retrain (`/training/start`), webhook registration,
+A/B test create/stop, and pipeline create/step — **require a Bearer token**.
+Inference routes (`/predict`, `/predict/batch`, `/models/{name}/export`),
+`/health`, `/datasets`, `/classes`, and monitor/read endpoints stay public
+for the mobile PWA.
+
+```bash
+# 1. Set a real secret (REQUIRED — the server refuses to issue/verify
+#    tokens without it; there is no default anymore)
+export CROPSSL_SECRET="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+
+# 2. Start the backend and log in
+python3 -m crop_ssl.backend.api
+curl -X POST http://localhost:8000/auth/login \
+     -H 'Content-Type: application/json' -d '{"username": "admin", "password": "admin123"}'
+# → {"token": "...", ...}
+
+# 3. Call a protected route with the token
+curl -X POST "http://localhost:8000/registry/register?model_name=my_model" \
+     -H "Authorization: Bearer <token>"
+```
+
+- **Passwords are salted PBKDF2** (200k iterations). Legacy unsalted hashes
+  are verified and transparently upgraded on the next successful login.
+- **Local dev bypass:** `CROPSSL_ALLOW_ANONYMOUS=1` treats requests without
+  an `Authorization` header as admin. Never enable it on a reachable network.
+- **Deployed defaults:** change `admin/admin123` immediately
+  (`POST /auth/register` + delete `crop_ssl/.users.json`, or call
+  `change_password`), and point the Streamlit dashboard at your backend URL
+  via `BACKEND_URL` in `crop_ssl/frontend/app.py` (defaults to
+  `http://localhost:8000`).
+- Requests/responses carry `X-Request-ID` for log correlation (client-supplied
+  IDs are honored). `/health` and `/` return **503** when no models are loaded,
+  so orchestrators can stop routing traffic to a dead backend.
+- For numerical ONNX verification install the extra: `pip install -e ".[onnx]"`.
 
 ### Serve a Real Trained Model (not demo weights)
 
@@ -730,13 +1046,6 @@ CropSSL ships two ways to run on Android:
 2. **Native APK** — a thin `android/` WebView wrapper that loads the same PWA
    (camera + gallery picker wired up). Build it in Android Studio; no
    external Gradle dependencies.
-
-```bash
-# Backend already running on your PC at port 8000.
-# On your Android phone (same Wi-Fi) open:
-#     http://<your-pc-lan-ip>:8000/app/
-# e.g. http://192.168.1.5:8000/app/
-```
 
 ```bash
 # Backend already running on your PC at port 8000.
@@ -919,7 +1228,7 @@ The full API surface is also browsable live at `http://localhost:8000/docs`.
 
 ```
 CropSSL/
-├── .github/workflows/ci.yml       # CI/CD: syntax + imports + 224 tests + Docker
+├── .github/workflows/ci.yml       # CI/CD: syntax + imports + 266 tests + Docker
 ├── android/                       # Native Android WebView wrapper (APK)
 ├── crop_ssl/
 │   ├── models/
@@ -929,6 +1238,7 @@ CropSSL/
 │   │   │   ├── moco_v3.py             # MoCo v3 momentum contrast
 │   │   │   ├── mae.py                 # Masked Autoencoder
 │   │   │   ├── dino_v2.py             # DINOv2 self-distillation
+│   │   │   ├── vicreg.py              # VICReg variance-invariance-covariance
 │   │   │   └── registry.py            # SSL model factory
 │   │   ├── heads/
 │   │   │   └── projection.py          # MLP, SimCLR, MoCo heads
@@ -965,7 +1275,7 @@ CropSSL/
 │   │   ├── cka.py                     # CKA representation-similarity analysis
 │   │   └── cross_domain_eval.py       # Cross-domain evaluation suite
 │   ├── backend/
-│   │   ├── api.py                     # FastAPI (52 routes, incl. /predict + ONNX export)
+│   │   ├── api.py                     # FastAPI (57 routes, incl. /predict + ONNX export)
 │   │   ├── auth.py                    # JWT authentication
 │   │   └── automation.py              # Registry, webhooks, A/B, drift, audit
 │   ├── frontend/
@@ -989,7 +1299,7 @@ CropSSL/
 │   │   ├── logging.py                 # Structured logging
 │   │   └── reproducibility.py         # Seed-based determinism
 │   └── tests/
-│       └── test_all.py                # 224 tests (all passing)
+│       └── test_all.py                # 266 tests (all passing)
 ├── assets/logo.png
 ├── requirements.txt
 ├── pyproject.toml
@@ -1038,7 +1348,7 @@ Every push to `main` runs three automated checks via GitHub Actions
 | Job | What runs |
 |-----|-----------|
 | **checks** | `compileall` syntax gate + import smoke-test of all 51 modules + secret scan |
-| **test** | The full **224-test** suite (`pytest crop_ssl/tests/test_all.py`) |
+| **test** | The full **266-test** suite (`pytest crop_ssl/tests/test_all.py`) |
 | **docker** | Verifies the Docker image builds (on `main`) |
 
 Badge status shows directly under the project title. Run everything locally

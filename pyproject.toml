@@ -8,5 +8,11 @@ version = "1.0.0"
 description = "Cross-Domain Robustness of Self-Supervised Vision Foundation Models for Crop Disease Detection"
 requires-python = ">=3.10"
 
+[project.optional-dependencies]
+# Numerical ONNX verification (verify_onnx / onnx_knn --onnx). Optional
+# because the wheel is large (~200MB); without it, export verification
+# honestly reports verified:false.
+onnx = ["onnxruntime>=1.17"]
+
 [tool.setuptools.packages.find]
 include = ["crop_ssl*"]

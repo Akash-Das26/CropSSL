@@ -10,6 +10,7 @@ from crop_ssl.models.ssl.dino_v2 import DINOv2
 from crop_ssl.models.ssl.moco_v3 import MoCoV3
 from crop_ssl.models.ssl.simclr import SimCLR
 from crop_ssl.models.ssl.mae import MAE
+from crop_ssl.models.ssl.vicreg import VICReg
 
 
 SSL_REGISTRY = {
@@ -17,6 +18,7 @@ SSL_REGISTRY = {
     "moco_v3": MoCoV3,
     "simclr": SimCLR,
     "mae": MAE,
+    "vicreg": VICReg,
 }
 
 
@@ -28,7 +30,7 @@ def create_ssl_model(
     """Create an SSL model by method name.
 
     Args:
-        method: SSL method name ('dinov2', 'moco_v3', 'simclr', 'mae').
+        method: SSL method name ('dinov2', 'moco_v3', 'simclr', 'mae', 'vicreg').
         backbone: ViT backbone variant.
         **kwargs: Additional method-specific arguments.
 

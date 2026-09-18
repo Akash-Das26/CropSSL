@@ -26,7 +26,7 @@ class DataConfig:
 @dataclass
 class SSLConfig:
     """Self-supervised learning configuration."""
-    method: str = "dinov2"  # dinov2, moco_v3, simclr, mae
+    method: str = "dinov2"  # dinov2, moco_v3, simclr, mae, vicreg
     backbone: str = "vit_base"  # vit_small, vit_base, vit_large
     embed_dim: int = 768
     patch_size: int = 16

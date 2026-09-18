@@ -22,6 +22,8 @@ import torchvision.transforms as transforms
 from torch.utils.data import Dataset
 from PIL import Image
 
+from crop_ssl.data.datasets._validation import quarantine_corrupt
+
 
 class BRACOLDataset(Dataset):
     """BRACOL dataset — Brazilian Arabica coffee leaf disease.
@@ -151,6 +153,12 @@ class BRACOLDataset(Dataset):
         self.samples: list[Tuple[Path, int, int, int]] = []
         self._load_samples()
 
+        # Quarantine unreadable images BEFORE the split, so split indices
+        # stay in sync with what is iterable and corrupt files can never
+        # surface as silent placeholder images at __getitem__ time.
+        self.quarantined: list = []
+        self.samples, self.quarantined = quarantine_corrupt(self.samples)
+
         # Deterministic split
         if self.samples:
             rng = torch.Generator().manual_seed(42)
@@ -245,10 +253,14 @@ class BRACOLDataset(Dataset):
 
     def _create_synthetic(self):
         """Create synthetic dataset simulating 5 different phone sensors."""
+        import zlib
         import numpy as np
 
         self.images_dir.mkdir(parents=True, exist_ok=True)
         csv_rows = []
+        # Per-dataset seed: see plantvillage.py — shared global RNG state made
+        # fallback bytes collide across datasets and depend on call order.
+        np.random.seed(zlib.crc32(type(self).__name__.encode()) % (2**32))
 
         # Simulate different phone color profiles
         phone_tints = [
@@ -301,10 +313,10 @@ class BRACOLDataset(Dataset):
 
     def __getitem__(self, idx: int):
         img_path, class_idx, severity, phone_idx = self.samples[idx]
-        try:
-            image = Image.open(img_path).convert("RGB")
-        except Exception:
-            image = Image.new("RGB", (224, 224), (128, 128, 128))
+        # Corrupt files are excluded at init (see self.quarantined); a
+        # failure here means the file vanished mid-session and should
+        # raise, not become a silent placeholder.
+        image = Image.open(img_path).convert("RGB")
 
         if self.transform:
             image = self.transform(image)
