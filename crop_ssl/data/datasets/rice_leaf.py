@@ -14,6 +14,8 @@ import torchvision.transforms as transforms
 from torch.utils.data import Dataset
 from PIL import Image
 
+from crop_ssl.data.datasets._validation import quarantine_corrupt
+
 
 class RiceLeafDataset(Dataset):
     """Rice leaf disease classification dataset.
@@ -70,6 +72,12 @@ class RiceLeafDataset(Dataset):
                         (img_path, self.class_to_idx[cls_name])
                     )
 
+        # Quarantine unreadable images BEFORE the split, so split indices
+        # stay in sync with what is iterable and corrupt files can never
+        # surface as silent placeholder images at __getitem__ time.
+        self.quarantined: list = []
+        self.samples, self.quarantined = quarantine_corrupt(self.samples)
+
         rng = torch.Generator().manual_seed(42)
         n = len(self.samples)
         perm = torch.randperm(n, generator=rng).tolist()
@@ -91,10 +99,10 @@ class RiceLeafDataset(Dataset):
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int]:
         img_path, label = self.samples[idx]
-        try:
-            image = Image.open(img_path).convert("RGB")
-        except Exception:
-            image = Image.new("RGB", (224, 224), (128, 128, 128))
+        # Corrupt files are excluded at init (see self.quarantined); a
+        # failure here means the file vanished mid-session and should
+        # raise, not become a silent placeholder.
+        image = Image.open(img_path).convert("RGB")
 
         if self.transform:
             image = self.transform(image)
@@ -105,7 +113,11 @@ class RiceLeafDataset(Dataset):
 
     def _create_synthetic_dataset(self):
         """Create synthetic dataset for testing."""
+        import zlib
         import numpy as np
+        # Per-dataset seed: see plantvillage.py — shared global RNG state made
+        # fallback bytes collide across datasets and depend on call order.
+        np.random.seed(zlib.crc32(type(self).__name__.encode()) % (2**32))
         for cls_name in self.CLASS_NAMES:
             cls_dir = self.data_dir / cls_name
             cls_dir.mkdir(parents=True, exist_ok=True)

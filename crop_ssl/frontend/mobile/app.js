@@ -121,6 +121,17 @@
     $("resultCard").classList.add("hidden");
     $("analyzing").classList.remove("hidden");
 
+    const showOfflineError = (msg) => {
+      $("imgTag").textContent = "ERROR";
+      $("analyzing").classList.add("hidden");
+      $("resultCard").classList.remove("hidden");
+      $("topLabel").textContent = "Connection failed";
+      $("confPct").textContent = "—";
+      $("subLabel").textContent = msg;
+      $("bars").innerHTML = "";
+      setConn("offline");
+    };
+
     try {
       const fd = new FormData();
       fd.append("file", file, "leaf.jpg");
@@ -135,14 +146,20 @@
       $("imgTag").textContent = "ANALYZED";
       showResult(res);
     } catch (e) {
-      $("imgTag").textContent = "ERROR";
-      $("analyzing").classList.add("hidden");
-      $("resultCard").classList.remove("hidden");
-      $("topLabel").textContent = "Connection failed";
-      $("confPct").textContent = "—";
-      $("subLabel").textContent = e.message;
-      $("bars").innerHTML = "";
-      setConn("offline");
+      // Offline fallback: classify on-device with the cached k-NN bundle.
+      const knn = window.CropSSLKNN;
+      if (knn && knn.status().ready) {
+        try { await img.decode(); } catch (_) { /* decode best-effort */ }
+        const res = await knn.classify(img);
+        if (res.ok) {
+          $("imgTag").textContent = "ANALYZED · OFFLINE";
+          showResult(res);
+          return;
+        }
+        showOfflineError("Offline k-NN failed: " + res.error);
+        return;
+      }
+      showOfflineError(e.message);
     }
   }
 
@@ -249,6 +266,93 @@
     });
   }
 
+  function knnStatusRow() {
+    const knn = window.CropSSLKNN;
+    if (!knn) return;
+    const s = knn.status();
+    const el = $("knnStatus");
+    if (el) el.textContent = s.ready
+      ? "✓ " + s.model + " · " + s.mode + " · " + s.classes + " classes · " + s.support + " support"
+      : "No offline bundle loaded — " + s.reason;
+  }
+
+  function wireKnn() {
+    const btn = $("knnBtn");
+    if (!btn || !window.CropSSLKNN) return;
+    btn.addEventListener("click", async () => {
+      const name = ($("exportSelect") || {}).value || "";
+      const hint = $("knnHint");
+      const dl = $("knnDl");
+      if (!name) {
+        hint.textContent = "Choose a model first (same selector as ONNX export).";
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = "Building…";
+      hint.textContent = "";
+      if (dl) dl.hidden = true;
+      try {
+        const classesEl = $("knnClasses");
+        const numClasses = Math.max(2, Math.min(20, parseInt((classesEl && classesEl.value) || "5", 10) || 5));
+        const r = await fetch(API() + "/models/" + encodeURIComponent(name) + "/knn-bundle", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ num_classes: numClasses, shots: 5, k: 0 }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error((j.detail || r.status) + "");
+        dl.href = API() + "/models/" + encodeURIComponent(name) + "/knn-bundle";
+        dl.hidden = false;
+        dl.textContent = "⬇ " + (j.size_mb || "?") + " MB · " +
+          j.num_classes + " classes · " + j.mode;
+        hint.textContent =
+          "Bundle ready — tap Download, then Load to go fully offline.";
+      } catch (e) {
+        hint.textContent = "Bundle build failed: " + e.message;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "🧮 Build k-NN Bundle";
+      }
+    });
+
+    const loadBtn = $("knnLoadBtn");
+    if (loadBtn) {
+      loadBtn.addEventListener("click", async () => {
+        const name = ($("exportSelect") || {}).value || "";
+        const hint = $("knnHint");
+        if (!name) {
+          hint.textContent = "Choose a model first (same selector as ONNX export).";
+          return;
+        }
+        loadBtn.disabled = true;
+        loadBtn.textContent = "Loading runtime + model…";
+        try {
+          await window.CropSSLKNN.load(API(), name);
+          ls.setItem("cropssl_knn_model", name);
+          hint.textContent = window.CropSSLKNN.status().ready
+            ? "Offline inference ready — scans will work without the server."
+            : "Load failed: " + window.CropSSLKNN.status().reason;
+        } finally {
+          loadBtn.disabled = false;
+          loadBtn.textContent = "⬇ Load for Offline Use";
+          knnStatusRow();
+        }
+      });
+    }
+
+    // Pair with the existing ONNX export: once an export downloads, offer the bundle too.
+    const exportDl = $("exportDl");
+    if (exportDl) {
+      exportDl.addEventListener("click", () => {
+        const name = ($("exportSelect") || {}).value || "";
+        const hint = $("knnHint");
+        if (hint && name) {
+          hint.textContent = "ONNX saved. Build + download the k-NN bundle, then Load for offline use.";
+        }
+      });
+    }
+  }
+
   function li(k, v, cls) {
     return (
       "<li><span class='k'>" + esc(k) + "</span>" +
@@ -294,7 +398,15 @@
     // load model list once API base is set
     refreshModelList();
     wireExport();
+    wireKnn();
     $("apiBase").addEventListener("change", refreshModelList);
+
+    // offline k-NN: reflect status; auto-load a previously stored bundle
+    knnStatusRow();
+    const knnModel = ls.getItem("cropssl_knn_model");
+    if (knnModel && window.CropSSLKNN && !window.CropSSLKNN.status().ready) {
+      window.CropSSLKNN.load(API(), knnModel).then(knnStatusRow);
+    }
 
     // service worker
     if ("serviceWorker" in navigator) {
@@ -302,5 +414,12 @@
     }
     ping();
     setInterval(ping, 15000);
+    // network came back? try to (re)load a stored bundle automatically
+    window.addEventListener("online", () => {
+      const knnModel = ls.getItem("cropssl_knn_model");
+      if (knnModel && window.CropSSLKNN && !window.CropSSLKNN.status().ready) {
+        window.CropSSLKNN.load(API(), knnModel).then(knnStatusRow);
+      }
+    });
   });
 })();

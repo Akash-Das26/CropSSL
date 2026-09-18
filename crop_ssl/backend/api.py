@@ -13,17 +13,19 @@ Usage:
 import io
 import time
 import uuid
-import traceback
-from datetime import datetime
+from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from typing import Dict, List, Optional
 
 import torch
 import torch.nn.functional as F
-from fastapi import Body, FastAPI, File, HTTPException, Header, UploadFile
+from fastapi import Body, Depends, FastAPI, File, HTTPException, Header, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+# Field is canonical in pydantic; fastapi >=0.14x stopped re-exporting it
+from pydantic import BaseModel, Field
+
+from crop_ssl.backend import auth as auth_module
 
 # ============================================================
 # App Configuration
@@ -54,6 +56,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 MODELS: Dict[str, torch.nn.Module] = {}
 ACTIVE_MODEL: Optional[str] = None
 TRAINING_JOBS: Dict[str, Dict] = {}
+PREDICTION_LOG: Dict[str, Dict] = {}  # prediction_id -> prediction record (bounded, in-memory)
 START_TIME = time.time()
 
 
@@ -64,6 +67,15 @@ START_TIME = time.time()
 async def lifespan(app: FastAPI):
     """Load default models on startup."""
     global ACTIVE_MODEL
+    # Auth must be either configured or explicitly disabled — never silently
+    # unsecured. Without this, a forgotten CROPSSL_SECRET would only surface
+    # the first time someone tried to log in.
+    if not auth_module.ANONYMOUS_MODE and not auth_module.JWT_SECRET:
+        raise RuntimeError(
+            "CROPSSL_SECRET is not set. Start the server with: "
+            "CROPSSL_SECRET=<random-secret> python -m crop_ssl.backend.api "
+            "(local dev only: CROPSSL_ALLOW_ANONYMOUS=1 bypasses auth)."
+        )
     try:
         from crop_ssl.models.ssl import create_ssl_model
         for method, bb in [("simclr", "vit_small"), ("dinov2", "vit_small")]:
@@ -77,6 +89,9 @@ async def lifespan(app: FastAPI):
         print(f"✅ Loaded {len(MODELS)} models on {DEVICE}")
     except Exception as e:
         print(f"⚠️  Model loading failed: {e}")
+        # Fail fast: an API that starts with zero models only lies to its
+        # load balancer — surface the startup error instead.
+        raise
 
     # Init auth users
     try:
@@ -103,7 +118,9 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    # No cookies/credentialed browser flows exist; '*' + credentials is a
+    # spec-violating anti-pattern, so credentials stay off.
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -112,13 +129,16 @@ app.add_middleware(
 # ============================================================
 # Rate Limiter Middleware
 # ============================================================
-from collections import defaultdict
+from collections import defaultdict, deque
 import threading
 
 _rate_limits: Dict[str, List[float]] = defaultdict(list)
 _rate_lock = threading.Lock()
 RATE_LIMIT_MAX = 60  # requests
 RATE_LIMIT_WINDOW = 60  # seconds
+
+_LATENCY: Dict[str, deque] = {}  # route template -> ring buffer of ms timings
+_latency_lock = threading.Lock()
 
 
 @app.middleware("http")
@@ -131,6 +151,12 @@ async def rate_limit_and_logging_middleware(request, call_next):
     with _rate_lock:
         now = time.time()
         _rate_limits[client_ip] = [t for t in _rate_limits[client_ip] if now - t < RATE_LIMIT_WINDOW]
+        # Opportunistic sweep: bound the dict when many one-shot IPs pile up
+        # (only prunes clients idle for a full window, so active users are safe).
+        if len(_rate_limits) > 10_000:
+            for ip in [k for k, ts in _rate_limits.items()
+                       if not ts or now - ts[-1] >= RATE_LIMIT_WINDOW]:
+                del _rate_limits[ip]
         if len(_rate_limits[client_ip]) >= RATE_LIMIT_MAX:
             from fastapi.responses import JSONResponse
             return JSONResponse(
@@ -142,9 +168,24 @@ async def rate_limit_and_logging_middleware(request, call_next):
     response = await call_next(request)
     elapsed = (time.time() - start) * 1000
 
+    # Correlate requests across logs/services (client-provided ID wins)
+    rid = request.headers.get("X-Request-ID") or uuid.uuid4().hex[:12]
+    response.headers["X-Request-ID"] = rid
+
+    # Per-route latency sample (matched route template keeps the key space
+    # bounded; unmatched paths fall back to their raw path).
+    route_tmpl = getattr(request.scope.get("route"), "path", request.url.path)
+    with _latency_lock:
+        buf = _LATENCY.get(route_tmpl)
+        if buf is None:
+            if len(_LATENCY) >= 1000:  # bound: 404 scans etc. can't grow it forever
+                _LATENCY.pop(next(iter(_LATENCY)))
+            buf = _LATENCY[route_tmpl] = deque(maxlen=500)
+        buf.append(elapsed)
+
     # Log non-health requests
     if request.url.path not in ("/", "/health"):
-        print(f"  {request.method} {request.url.path} → {response.status_code} ({elapsed:.0f}ms)")
+        print(f"  rid={rid} {request.method} {request.url.path} → {response.status_code} ({elapsed:.0f}ms)")
 
     response.headers["X-Process-Time"] = f"{elapsed:.1f}ms"
     return response
@@ -159,6 +200,7 @@ class PredictionResponse(BaseModel):
     top_5: List[Dict]
     inference_time_ms: float
     model_used: str
+    prediction_id: str  # pass to /feedback to record ground truth
 
 
 class ModelInfo(BaseModel):
@@ -246,6 +288,76 @@ class ExportRequest(BaseModel):
     input_size: int = 224
 
 
+class FeedbackRequest(BaseModel):
+    """Body for POST /feedback — ground truth for a stored prediction."""
+    prediction_id: str
+    correct: bool
+    confidence: float = 0.0
+    predicted_class: Optional[str] = None  # override when the log entry expired
+    model_used: Optional[str] = None
+
+
+class KNNRunRequest(BaseModel):
+    """Body for POST /eval/knn — few-shot k-NN / nearest-centroid evaluation.
+
+    Mirrors scripts/onnx_knn.py's CLI so the dashboard can run the same
+    evaluation without a shell.
+    """
+    method: str = "simclr"            # SSL method providing embeddings
+    backbone: str = "vit_small"
+    num_classes: int = Field(default=5, ge=2, le=50)
+    shots: int = Field(default=5, ge=1, le=50)
+    k: int = Field(default=0, ge=0, le=50)  # 0 = nearest centroid
+    data_root: str = "./data"         # train/<class>/ layout; synthetic fallback if missing
+    seed: int = Field(default=0, ge=0, le=2**31 - 1)
+
+
+class KNNClassReport(BaseModel):
+    class_index: int
+    accuracy: float  # 0-1
+    n: int
+
+
+class KNNRunResponse(BaseModel):
+    mode: str                         # "nearest-centroid" or "k-NN (k=...)"
+    accuracy: float                   # 0-1 over the query set
+    num_support: int
+    num_query: int
+    per_class: List[KNNClassReport]
+    embedding_source: str             # "registry:<name>" or "transient"
+    runtime_ms: float
+
+
+class KNNBundleRequest(BaseModel):
+    """Body for POST /models/{name}/knn-bundle — offline on-device classifier.
+
+    Bakes a few-shot support set into a JSON bundle (class centroids + support
+    embeddings + preprocessing contract) that the mobile PWA pairs with the
+    exported ONNX backbone for fully offline inference.
+    """
+    num_classes: int = Field(default=5, ge=2, le=20)  # bounded: bundle size ~classes*shots*384 floats
+    shots: int = Field(default=5, ge=1, le=20)
+    k: int = Field(default=0, ge=0, le=20)  # 0 = nearest centroid
+    data_root: str = "./data"               # train/<class>/ layout; synthetic fallback if missing
+    seed: int = Field(default=0, ge=0, le=2**31 - 1)
+
+
+class KNNBundleResponse(BaseModel):
+    status: str
+    model: str
+    path: str
+    size_mb: float
+    mode: str
+    k: int
+    num_classes: int
+    shots: int
+    num_support: int
+    embed_dim: int
+    source: str                        # "train_dir" or "synthetic"
+    checked_with: str                  # "onnxruntime" or "pytorch-fallback"
+    download_url: str
+
+
 # ============================================================
 # Helpers
 # ============================================================
@@ -256,6 +368,56 @@ def _get_model(name: Optional[str] = None) -> torch.nn.Module:
     if ACTIVE_MODEL and ACTIVE_MODEL in MODELS:
         return MODELS[ACTIVE_MODEL]
     raise HTTPException(status_code=503, detail="No model loaded")
+
+
+def require_admin(
+    authorization: Optional[str] = Header(None),
+    token: Optional[str] = None,
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+) -> Dict:
+    """Auth dependency for sensitive (write/admin) routes.
+
+    Accepts, in order:
+    1. 'Authorization: ApiKey <key>' or 'X-API-Key: <key>' when the operator
+       set CROPSSL_API_KEY (machine clients, CI jobs) — admin principal.
+    2. 'Authorization: Bearer <token>' from /auth/login, or '?token=<token>'.
+    3. CROPSSL_ALLOW_ANONYMOUS=1 (local dev) treats header-less requests
+       as admin.
+    """
+    if auth_module.ANONYMOUS_MODE and not authorization and not token and not x_api_key:
+        return {"username": "anonymous", "role": "admin"}
+    # API-key scheme (before Bearer parsing — different credential type)
+    api_key = None
+    if authorization and authorization.split(" ", 1)[0].lower() == "apikey":
+        api_key = authorization.split(" ", 1)[1].strip() if " " in authorization else ""
+    elif x_api_key:
+        api_key = x_api_key.strip()
+    if api_key is not None:
+        if auth_module.verify_api_key(api_key):
+            return {"username": "api-key", "role": "admin"}
+        raise HTTPException(401, "Invalid API key")
+    auth_token = token
+    if not auth_token and authorization:
+        parts = authorization.split()
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            auth_token = parts[1]
+        else:
+            auth_token = authorization
+    if not auth_token:
+        raise HTTPException(
+            401,
+            "Authentication required: log in via /auth/login and send "
+            "Authorization: Bearer <token>, or set CROPSSL_API_KEY and send "
+            "X-API-Key (dev bypass: CROPSSL_ALLOW_ANONYMOUS=1)",
+        )
+    try:
+        payload = auth_module.verify_token(auth_token)
+    except RuntimeError as e:
+        # Server started without CROPSSL_SECRET: auth is disabled, not broken
+        raise HTTPException(503, str(e))
+    if not payload:
+        raise HTTPException(401, "Invalid or expired token")
+    return payload
 
 
 def _preprocess_image(contents: bytes):
@@ -292,7 +454,11 @@ async def login(req: LoginRequest):
     user = authenticate_user(req.username, req.password)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid username or password")
-    token = create_token(user["username"], user["role"])
+    try:
+        token = create_token(user["username"], user["role"])
+    except RuntimeError as e:
+        # Server started without CROPSSL_SECRET: auth is disabled, not broken
+        raise HTTPException(503, str(e))
     return LoginResponse(
         token=token,
         access_token=token,
@@ -348,8 +514,10 @@ async def get_current_user(
 
 
 @app.get("/auth/users")
-async def list_all_users():
-    """List all registered users (admin only)."""
+async def list_all_users(user_payload: Dict = Depends(require_admin)):
+    """List all registered users (admin only; hashes are never returned)."""
+    if user_payload.get("role") != "admin":
+        raise HTTPException(403, "Admin role required")
     from crop_ssl.backend.auth import list_users
     return {"users": list_users()}
 
@@ -359,6 +527,12 @@ async def list_all_users():
 # ============================================================
 @app.get("/", response_model=HealthResponse)
 async def root():
+    if not MODELS:
+        # A backend with no models cannot serve predictions: report 503 so
+        # orchestrators stop routing traffic here.
+        raise HTTPException(status_code=503, detail={
+            "status": "unavailable", "reason": "no models loaded", "device": DEVICE,
+        })
     return HealthResponse(
         status="healthy",
         device=DEVICE,
@@ -370,6 +544,10 @@ async def root():
 
 @app.get("/health", response_model=HealthResponse)
 async def health():
+    if not MODELS:
+        raise HTTPException(status_code=503, detail={
+            "status": "unavailable", "reason": "no models loaded", "device": DEVICE,
+        })
     return HealthResponse(
         status="healthy",
         device=DEVICE,
@@ -461,22 +639,33 @@ async def predict(
     if top_idx >= NUM_CLASSES:
         top_idx = 0
 
+    prediction_id = uuid.uuid4().hex[:12]
+    if len(PREDICTION_LOG) >= 10_000:
+        PREDICTION_LOG.pop(next(iter(PREDICTION_LOG)))  # bounded: drop oldest
+    PREDICTION_LOG[prediction_id] = {
+        "predicted_class": DISEASE_CLASSES[top_idx],
+        "confidence": round(top5_probs[0][0].item() * 100, 2),
+        "model_used": model_name_used or "unknown",
+        "timestamp": time.time(),
+    }
+
     return PredictionResponse(
         prediction=DISEASE_CLASSES[top_idx],
         confidence=round(top5_probs[0][0].item() * 100, 2),
         top_5=top5,
         inference_time_ms=round(elapsed, 2),
         model_used=model_name_used or "unknown",
+        prediction_id=prediction_id,
     )
 
 
 @app.post("/models/{model_name}/load")
-async def load_model(model_name: str):
+async def load_model(model_name: str, user_payload: Dict = Depends(require_admin)):
     """Load a specific SSL model."""
     global ACTIVE_MODEL
     from crop_ssl.models.ssl import create_ssl_model
 
-    known_methods = ["dinov2", "moco_v3", "simclr", "mae"]
+    known_methods = ["dinov2", "moco_v3", "simclr", "mae", "vicreg"]
     method, backbone = "simclr", "vit_small"
     for m in known_methods:
         if model_name.startswith(m):
@@ -503,6 +692,7 @@ async def upload_checkpoint_model(
     method: str = "simclr",
     backbone: str = "vit_small",
     model_name: Optional[str] = None,
+    user_payload: Dict = Depends(require_admin),
 ):
     """Upload a trained checkpoint (from train_ssl / run_pipeline) and serve it.
 
@@ -521,7 +711,7 @@ async def upload_checkpoint_model(
     embed_dims = {"vit_small": 384, "vit_base": 768, "vit_large": 1024}
     if backbone not in embed_dims:
         raise HTTPException(400, f"Unknown backbone: {backbone}")
-    if method not in ("dinov2", "moco_v3", "simclr", "mae"):
+    if method not in ("dinov2", "moco_v3", "simclr", "mae", "vicreg"):
         raise HTTPException(400, f"Unknown method: {method}")
 
     import io as _io
@@ -664,8 +854,164 @@ async def download_export(model_name: str):
                        filename=f"{safe_name}.onnx")
 
 
+@app.post("/models/{model_name}/knn-bundle", response_model=KNNBundleResponse)
+async def build_knn_bundle(model_name: str, req: KNNBundleRequest = Body(...)):
+    """Build an offline k-NN bundle for the mobile PWA.
+
+    Pairs the model's backbone-flavor ONNX export with a few-shot support set:
+    the JSON bundle carries class centroids, raw support embeddings, class
+    names, and the exact preprocessing contract (image size + ImageNet
+    normalize stats) so the phone reproduces scripts/onnx_knn.py's math
+    offline. Embeddings always come from the same backbone flavor that is
+    exported — via onnxruntime when installed, otherwise the torch backbone
+    (forward_features), which is what the graph computes.
+    """
+    if model_name not in MODELS:
+        raise HTTPException(404, f"Model '{model_name}' not loaded")
+    model = MODELS[model_name]
+    from pathlib import Path as _P
+    from crop_ssl.utils.export import export_ssl_backbone
+
+    export_dir = _P("model_exports")
+    export_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = model_name.replace("/", "_").replace("\\", "_")
+    onnx_path = export_dir / f"{safe_name}.onnx"
+
+    # 1) Ensure the backbone-flavor ONNX exists (input 'input' → output
+    #    'features'). This is the only flavor whose outputs the PWA can rely
+    #    on, so unlike /export there is no full-model fallback here.
+    if not onnx_path.exists():
+        try:
+            export_ssl_backbone(model, str(onnx_path),
+                                input_shape=(1, 3, 224, 224))
+        except Exception as e:
+            raise HTTPException(400, f"Backbone export failed: {str(e)[:200]}")
+
+    # 2) Few-shot support set (real train/<class>/ images or the same
+    #    deterministic synthetic fallback the CLI and /eval/knn use).
+    from crop_ssl.scripts.onnx_knn import load_fewshot_split, normalize as knn_normalize
+    from crop_ssl.utils.reproducibility import set_seed
+    set_seed(req.seed)
+    support, _ = load_fewshot_split(
+        _P(req.data_root), req.num_classes, req.shots,
+        image_size=224, seed=req.seed,
+    )
+    if not support:
+        raise HTTPException(400, "Few-shot split produced no support data")
+
+    train_dir = _P(req.data_root) / "train"
+    if train_dir.exists():
+        class_dirs = sorted([d.name for d in train_dir.iterdir() if d.is_dir()])
+    else:
+        class_dirs = []
+    if len(class_dirs) >= req.num_classes:
+        classes, source = class_dirs[:req.num_classes], "train_dir"
+    else:
+        classes = [f"Class {i}" for i in range(req.num_classes)]
+        source = "synthetic"
+
+    # 3) Embeddings through the same graph flavor that was exported.
+    import numpy as np
+    sup_feats, sup_labels = [], []
+    checked_with = "pytorch-fallback"
+    try:
+        import onnxruntime as ort  # deliberately optional (see requirements)
+        sess = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
+        input_name = sess.get_inputs()[0].name
+        for x, y in support:
+            out = sess.run(None, {input_name: knn_normalize(x[None].astype(np.float32))})[0]
+            sup_feats.append(np.asarray(out).reshape(-1))
+            sup_labels.append(int(y))
+        checked_with = "onnxruntime"
+    except ImportError:
+        # Torch fallback mirrors export_ssl_backbone's BackboneWrapper:
+        # teacher → student → encoder → query_encoder, then forward_features.
+        backbone = (getattr(model, "teacher_backbone", None)
+                    or getattr(model, "student_backbone", None)
+                    or getattr(model, "encoder", None)
+                    or getattr(model, "query_encoder", None)
+                    or model)
+        for x, y in support:
+            t = torch.from_numpy(knn_normalize(x[None].astype(np.float32))).float()
+            with torch.no_grad():
+                feats = backbone.forward_features(t)
+            sup_feats.append(feats.reshape(-1).cpu().numpy())
+            sup_labels.append(int(y))
+
+    sup_feats = np.stack(sup_feats).astype(np.float32)
+    sup_labels = np.array(sup_labels)
+    embed_dim = int(sup_feats.shape[1])
+
+    # 4) One raw-mean centroid per class (L2 normalization happens at
+    #    classify time — identical to nearest_centroid() in onnx_knn.py).
+    centroids = np.stack([
+        sup_feats[sup_labels == c].mean(axis=0) for c in range(req.num_classes)
+    ]).astype(np.float32)
+
+    # 5) Write the bundle.
+    import json as _json
+    bundle = {
+        "version": 1,
+        "model_name": model_name,
+        "image_size": 224,
+        "normalize": {
+            "mean": [0.485, 0.456, 0.406],
+            "std": [0.229, 0.224, 0.225],
+        },
+        "mode": f"k-NN (k={req.k})" if req.k > 0 else "nearest-centroid",
+        "k": req.k,
+        "embed_dim": embed_dim,
+        "classes": classes,
+        "num_classes": req.num_classes,
+        "shots": req.shots,
+        "support": {
+            "embeddings": [[round(float(v), 6) for v in row] for row in sup_feats],
+            "labels": sup_labels.tolist(),
+        },
+        "centroids": [[round(float(v), 6) for v in row] for row in centroids],
+        "source": source,
+        "checked_with": checked_with,
+        "onnx_file": f"{safe_name}.onnx",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    bundle_path = export_dir / f"{safe_name}-knn-bundle.json"
+    bundle_path.write_text(_json.dumps(bundle))
+    size_mb = round(bundle_path.stat().st_size / (1024 * 1024), 2)
+
+    audit_log.log("knn_bundle_built", "system", {
+        "model": model_name, "path": str(bundle_path), "size_mb": size_mb,
+    })
+    return KNNBundleResponse(
+        status="built",
+        model=model_name,
+        path=str(bundle_path),
+        size_mb=size_mb,
+        mode=bundle["mode"],
+        k=req.k,
+        num_classes=req.num_classes,
+        shots=req.shots,
+        num_support=len(support),
+        embed_dim=embed_dim,
+        source=source,
+        checked_with=checked_with,
+        download_url=f"/models/{model_name}/knn-bundle",
+    )
+
+
+@app.get("/models/{model_name}/knn-bundle")
+async def download_knn_bundle(model_name: str):
+    """Download the offline k-NN bundle for a model (PWA fetches this)."""
+    from pathlib import Path as _P
+    safe_name = model_name.replace("/", "_").replace("\\", "_")
+    path = _P("model_exports") / f"{safe_name}-knn-bundle.json"
+    if not path.exists():
+        raise HTTPException(404, f"No k-NN bundle for '{model_name}'. POST /models/{model_name}/knn-bundle first.")
+    return FileResponse(str(path), media_type="application/json",
+                       filename=f"{safe_name}-knn-bundle.json")
+
+
 @app.delete("/models/{model_name}")
-async def unload_model(model_name: str):
+async def unload_model(model_name: str, user_payload: Dict = Depends(require_admin)):
     """Unload a model from memory."""
     global ACTIVE_MODEL
     if model_name in MODELS:
@@ -685,7 +1031,10 @@ async def list_classes():
 @app.get("/attention/{model_name}")
 async def get_attention_maps(model_name: str):
     """Get attention map shapes from a model's transformer blocks."""
-    model = _get_model(model_name)
+    # Explicit unknown names must 404 — never silently serve another model
+    if model_name not in MODELS:
+        raise HTTPException(404, f"Model '{model_name}' not loaded")
+    model = MODELS[model_name]
     if not hasattr(model, "student_backbone") and not hasattr(model, "encoder"):
         raise HTTPException(400, "Model has no transformer backbone")
 
@@ -694,8 +1043,10 @@ async def get_attention_maps(model_name: str):
         raise HTTPException(400, "No transformer blocks found")
 
     layer_count = len(backbone.blocks)
+    # Read the real per-head config from the first attention block
+    # (vit_small=6, vit_base=12, vit_large=16 — never derivable from embed_dim)
+    num_heads = backbone.blocks[0].attn.num_heads
     embed_dim = backbone.embed_dim if hasattr(backbone, "embed_dim") else 768
-    num_heads = embed_dim // 12  # assume 12 heads
 
     shapes = [[num_heads, 197, 197] for _ in range(layer_count)]
     return AttentionResponse(layer_count=layer_count, attention_shapes=shapes)
@@ -707,9 +1058,9 @@ async def training_status():
 
 
 @app.post("/training/start")
-async def start_training(req: TrainingRequest):
+async def start_training(req: TrainingRequest, user_payload: Dict = Depends(require_admin)):
     """Start a training job in background."""
-    if req.method not in ["simclr", "dinov2", "moco_v3", "mae"]:
+    if req.method not in ["simclr", "dinov2", "moco_v3", "mae", "vicreg"]:
         raise HTTPException(400, f"Unknown method: {req.method}")
     if req.backbone not in ["vit_small", "vit_base", "vit_large"]:
         raise HTTPException(400, f"Unknown backbone: {req.backbone}")
@@ -745,7 +1096,7 @@ async def start_training(req: TrainingRequest):
                 n = 0
                 for images, _ in loader:
                     images = images.to(DEVICE)
-                    if req.method in ("simclr", "moco_v3"):
+                    if req.method in ("simclr", "moco_v3", "vicreg"):
                         result = model(images, torch.randn_like(images))
                     elif req.method == "mae":
                         result = model(images)
@@ -861,6 +1212,70 @@ async def predict_batch(
     }
 
 
+@app.post("/feedback")
+async def prediction_feedback(req: FeedbackRequest):
+    """Record ground truth for a stored prediction (closes the feedback loop).
+
+    Feeds the existing auto-retrain monitor and drift detector, so accuracy
+    drops and class-distribution shifts are tracked automatically instead of
+    requiring manual calls to /auto-retrain/record and /drift/record.
+    """
+    if req.predicted_class is not None:
+        pred_class = req.predicted_class
+        model_used = req.model_used or "unknown"
+    else:
+        entry = PREDICTION_LOG.get(req.prediction_id)
+        if entry is None:
+            raise HTTPException(404, f"Unknown or expired prediction_id: {req.prediction_id}")
+        pred_class = entry["predicted_class"]
+        model_used = entry["model_used"]
+
+    auto_retrain.record_prediction(model_used, correct=req.correct, confidence=req.confidence)
+    drift_detector.record_prediction(pred_class, req.confidence)
+    audit_log.log("prediction_feedback", "system", {
+        "prediction_id": req.prediction_id,
+        "correct": req.correct,
+        "predicted_class": pred_class,
+        "model": model_used,
+    })
+    return {
+        "status": "recorded",
+        "prediction_id": req.prediction_id,
+        "correct": req.correct,
+        "predicted_class": pred_class,
+        "model": model_used,
+    }
+
+
+@app.get("/system/latency")
+async def system_latency():
+    """Per-route latency percentiles (ms) for capacity/ops monitoring.
+
+    Aggregated over an in-memory ring buffer (last ≤500 requests per route);
+    resets on restart and does not aggregate across replicas.
+    """
+    with _latency_lock:
+        snapshot = {p: list(ts) for p, ts in _LATENCY.items()}
+    routes = []
+    for path, ts in snapshot.items():
+        if not ts:
+            continue
+        s = sorted(ts)
+        n = len(s)
+        routes.append({
+            "route": path,
+            "samples": n,
+            "p50_ms": round(s[n // 2], 1),
+            "p95_ms": round(s[min(n - 1, int(n * 0.95))], 1),
+            "mean_ms": round(sum(s) / n, 1),
+        })
+    routes.sort(key=lambda r: r["p95_ms"], reverse=True)
+    return {
+        "window": "ring buffer: last <=500 requests per route, in-memory, resets on restart",
+        "routes": routes,
+    }
+
+
 @app.get("/system/metrics")
 async def system_metrics():
     """System metrics for monitoring."""
@@ -907,6 +1322,7 @@ from crop_ssl.backend.automation import (
 async def registry_register(
     model_name: str = "default",
     user: str = "system",
+    user_payload: Dict = Depends(require_admin),
 ):
     """Register the active model in the registry."""
     global ACTIVE_MODEL
@@ -932,7 +1348,7 @@ async def registry_register(
 
 
 @app.post("/registry/deploy")
-async def registry_deploy(model_name: str, version_id: str, user: str = "system"):
+async def registry_deploy(model_name: str, version_id: str, user: str = "system", user_payload: Dict = Depends(require_admin)):
     """Deploy a specific model version."""
     success = registry.deploy(model_name, version_id)
     if not success:
@@ -943,7 +1359,7 @@ async def registry_deploy(model_name: str, version_id: str, user: str = "system"
 
 
 @app.post("/registry/rollback")
-async def registry_rollback(model_name: str, user: str = "system"):
+async def registry_rollback(model_name: str, user: str = "system", user_payload: Dict = Depends(require_admin)):
     """Rollback to previous model version."""
     prev = registry.rollback(model_name)
     if not prev:
@@ -994,7 +1410,7 @@ async def auto_retrain_alerts(model_name: Optional[str] = None):
 
 # --- Webhooks ---
 @app.post("/webhooks/register")
-async def webhook_register(event: str, url: str, secret: Optional[str] = None):
+async def webhook_register(event: str, url: str, secret: Optional[str] = None, user_payload: Dict = Depends(require_admin)):
     """Register a webhook."""
     hook_id = webhooks.register(event, url, secret)
     audit_log.log("webhook_registered", "system", {"event": event, "url": url})
@@ -1002,7 +1418,7 @@ async def webhook_register(event: str, url: str, secret: Optional[str] = None):
 
 
 @app.post("/webhooks/unregister")
-async def webhook_unregister(event: str, hook_id: str):
+async def webhook_unregister(event: str, hook_id: str, user_payload: Dict = Depends(require_admin)):
     """Remove a webhook."""
     removed = webhooks.unregister(event, hook_id)
     if not removed:
@@ -1023,7 +1439,7 @@ async def webhook_deliveries(limit: int = 20):
 
 
 @app.post("/webhooks/test")
-async def webhook_test(event: str = "test"):
+async def webhook_test(event: str = "test", user_payload: Dict = Depends(require_admin)):
     """Send a test webhook."""
     results = webhooks.dispatch(event, {"test": True, "timestamp": datetime.now().isoformat()})
     return {"dispatched": len(results), "event": event}
@@ -1031,7 +1447,7 @@ async def webhook_test(event: str = "test"):
 
 # --- A/B Testing ---
 @app.post("/ab/create")
-async def ab_create(req: ABCreateRequest):
+async def ab_create(req: ABCreateRequest, user_payload: Dict = Depends(require_admin)):
     """Create an A/B test."""
     test_id = ab_tests.create_test(
         req.test_name, req.model_a, req.model_b, req.traffic_split
@@ -1050,7 +1466,7 @@ async def ab_route(test_id: str):
 
 
 @app.post("/ab/record")
-async def ab_record(test_id: str, variant: str, correct: bool, confidence: float):
+async def ab_record(test_id: str, variant: str, correct: bool, confidence: float, user_payload: Dict = Depends(require_admin)):
     """Record an A/B test result."""
     ab_tests.record_result(test_id, variant, correct, confidence)
     return {"status": "recorded"}
@@ -1066,7 +1482,7 @@ async def ab_results(test_id: str):
 
 
 @app.post("/ab/stop/{test_id}")
-async def ab_stop(test_id: str):
+async def ab_stop(test_id: str, user_payload: Dict = Depends(require_admin)):
     """Stop an A/B test."""
     ab_tests.stop_test(test_id)
     return {"status": "stopped"}
@@ -1130,7 +1546,7 @@ async def pipeline_list():
 
 
 @app.post("/pipeline/create")
-async def pipeline_create(req: PipelineCreateRequest):
+async def pipeline_create(req: PipelineCreateRequest, user_payload: Dict = Depends(require_admin)):
     """Create a new ML pipeline."""
     pipe_id = orchestrator.create_pipeline(
         req.name, req.ssl_method, req.backbone, req.dataset,
@@ -1150,8 +1566,19 @@ async def pipeline_get(pipe_id: str):
 
 
 @app.post("/pipeline/{pipe_id}/step/{step_idx}")
-async def pipeline_step(pipe_id: str, step_idx: int, status: str, result: Optional[Dict] = None):
+async def pipeline_step(
+    pipe_id: str,
+    step_idx: int,
+    status: str,
+    result: Optional[Dict] = None,
+    user_payload: Dict = Depends(require_admin),
+):
     """Update a pipeline step."""
+    pipe = orchestrator.get_pipeline(pipe_id)
+    if not pipe:
+        raise HTTPException(404, "Pipeline not found")
+    if step_idx < 0 or step_idx >= len(pipe["steps"]):
+        raise HTTPException(404, f"Invalid step index {step_idx} (pipeline has {len(pipe['steps'])} steps)")
     ok = orchestrator.update_step(pipe_id, step_idx, status, result)
     if not ok:
         raise HTTPException(404, "Pipeline not found")
@@ -1183,16 +1610,119 @@ async def automation_status():
     }
 
 
+# ============================================================
+# Few-Shot k-NN / Nearest-Centroid Evaluation
+# ============================================================
+_KNN_EMBED_MODELS: Dict[str, torch.nn.Module] = {}  # bounded transient-model cache
+
+
+@app.post("/eval/knn", response_model=KNNRunResponse)
+async def eval_knn(req: KNNRunRequest):
+    """Run a few-shot k-NN / nearest-centroid evaluation on SSL embeddings.
+
+    Reuses scripts/onnx_knn.py's data split and classifier so the API, the
+    CLI, and the dashboard report the same numbers. Embeddings come from an
+    already-loaded registry model when one matches method/backbone,
+    otherwise a transient model is built (and cached, bounded to 2).
+
+    Note: runs synchronously like /predict — a vit_large eval on CPU can
+    hold the event loop for tens of seconds.
+    """
+    if req.method not in ("dinov2", "moco_v3", "simclr", "mae", "vicreg"):
+        raise HTTPException(400, f"Unknown method: {req.method}")
+    if req.backbone not in ("vit_small", "vit_base", "vit_large"):
+        raise HTTPException(400, f"Unknown backbone: {req.backbone}")
+    from crop_ssl.scripts.onnx_knn import load_fewshot_split, nearest_centroid
+    from crop_ssl.utils.reproducibility import set_seed
+    from pathlib import Path
+
+    t0 = time.perf_counter()
+    set_seed(req.seed)
+
+    # --- embedding function: registry model if loaded, else transient ---
+    registry_name = f"{req.method}_{req.backbone}"
+    if registry_name in MODELS:
+        model, embedding_source = MODELS[registry_name], f"registry:{registry_name}"
+    else:
+        if registry_name in _KNN_EMBED_MODELS:
+            model = _KNN_EMBED_MODELS[registry_name]
+        else:
+            embed_dims = {"vit_small": 384, "vit_base": 768, "vit_large": 1024}
+            from crop_ssl.models.ssl import create_ssl_model
+            model = create_ssl_model(
+                req.method, backbone=req.backbone,
+                embed_dim=embed_dims[req.backbone],
+            )
+            model.eval().to(DEVICE)
+            # Bound: 2 entries max — each transient ViT-L is ~1.2 GB on CPU,
+            # so a larger cache could pin gigabytes for a one-off eval.
+            if len(_KNN_EMBED_MODELS) >= 2:
+                _KNN_EMBED_MODELS.pop(next(iter(_KNN_EMBED_MODELS)))
+            _KNN_EMBED_MODELS[registry_name] = model
+        embedding_source = "transient"
+
+    def embed(images) -> "torch.Tensor":
+        x = torch.from_numpy(images).float().to(DEVICE)
+        with torch.no_grad():
+            return model.encode(x).cpu()
+
+    # --- data: reuse the script's split (real train/<class>/ or synthetic) ---
+    support, query = load_fewshot_split(
+        Path(req.data_root), req.num_classes, req.shots,
+        image_size=224, seed=req.seed,
+    )
+    if not support or not query:
+        raise HTTPException(400, "Few-shot split produced no data")
+
+    import numpy as np
+    from crop_ssl.scripts.onnx_knn import normalize
+
+    def to_feats(items):
+        xs = np.stack([x for x, _ in items]).astype(np.float32)
+        ys = np.array([y for _, y in items])
+        feats = torch.cat([embed(normalize(xs[i:i + 32]))
+                           for i in range(0, len(xs), 32)], dim=0).numpy()
+        return feats, ys
+
+    sup_feats, sup_labels = to_feats(support)
+    qry_feats, qry_labels = to_feats(query)
+
+    preds = nearest_centroid(sup_feats, sup_labels, qry_feats, k=req.k)
+    acc = float((preds == qry_labels).mean())
+    per_class = [
+        KNNClassReport(
+            class_index=int(c),
+            accuracy=float((preds[qry_labels == c] == c).mean()),
+            n=int((qry_labels == c).sum()),
+        )
+        for c in np.unique(qry_labels)
+    ]
+    runtime_ms = (time.perf_counter() - t0) * 1000
+    return KNNRunResponse(
+        mode=f"k-NN (k={req.k})" if req.k > 0 else "nearest-centroid",
+        accuracy=round(acc, 4),
+        num_support=len(support),
+        num_query=len(query),
+        per_class=per_class,
+        embedding_source=embedding_source,
+        runtime_ms=round(runtime_ms, 1),
+    )
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
-    """Catch-all exception handler for production robustness."""
+    """Catch-all exception handler for production robustness.
+
+    Logs the full traceback server-side; the response body carries only a
+    short message (never the stack) so internals don't leak to clients.
+    """
+    print(f"⚠️  Unhandled error on {request.method} {request.url.path}: "
+          f"{type(exc).__name__}: {exc}")
     return JSONResponse(
         status_code=500,
-        content={
-            "error": str(exc),
-            "type": type(exc).__name__,
-            "detail": traceback.format_exc() if not isinstance(exc, HTTPException) else None,
-        },
+        # Generic message: str(exc) can itself leak paths/internals. The
+        # full detail is in the server log line above.
+        content={"error": "Internal server error", "type": type(exc).__name__},
     )
 
 

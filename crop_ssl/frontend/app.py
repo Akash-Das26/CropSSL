@@ -448,20 +448,56 @@ CLASSES = [
     "Tomato Healthy",
 ]
 
+BACKEND_URL = "http://localhost:8000"
+
 CREDS = {"admin": "admin123", "researcher": "research2026", "demo": "demo123"}
 
 
+def api_request(path: str, method: str = "GET", data=None, headers=None, timeout: int = 5):
+    """HTTP request to the backend, attaching the session Bearer token if logged in.
+
+    Raises urllib errors on failure — callers already handle backend-offline
+    gracefully (their try/except blocks).
+    """
+    import urllib.request
+    hdrs = dict(headers or {})
+    tok = st.session_state.get("token")
+    if tok:
+        hdrs.setdefault("Authorization", f"Bearer {tok}")
+    req = urllib.request.Request(BACKEND_URL + path, data=data, method=method, headers=hdrs)
+    return urllib.request.urlopen(req, timeout=timeout)
+
+
 def auth_user(u, p):
-    if CREDS.get(u) == p:
-        roles = {"admin": "admin", "researcher": "researcher", "demo": "viewer"}
+    """Authenticate against the backend (/auth/login) and cache a token.
+
+    Falls back to offline demo mode (no token) when the backend is
+    unreachable, so the dashboard stays usable without the API — protected
+    API writes will then return 401 and surface as 'Backend not running'.
+    """
+    roles = {"admin": "admin", "researcher": "researcher", "demo": "viewer"}
+    if CREDS.get(u) != p:
+        return None
+    try:
+        import urllib.request, json
+        body = json.dumps({"username": u, "password": p}).encode()
+        req = urllib.request.Request(
+            BACKEND_URL + "/auth/login", data=body, method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            data = json.loads(resp.read())
+        st.session_state.token = data["token"]
+        return {"username": u, "role": data.get("role", roles.get(u, "viewer"))}
+    except Exception:
+        st.session_state.token = None  # offline demo mode
         return {"username": u, "role": roles.get(u, "viewer")}
-    return None
 
 
 # ============================================================
 # SESSION INIT
 # ============================================================
-for k, v in [("authed", False), ("user", None), ("model", None),
+for k, v in [("authed", False), ("user", None), ("token", None), ("model", None),
              ("model_name", None), ("history", []), ("training_losses", []),
              ("training_active", False), ("registry", []),
              ("audit_log", []), ("ab_tests", []), ("webhooks", []),
@@ -553,7 +589,7 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
     st.markdown('<div class="section-header">⚙️ Model Configuration</div>', unsafe_allow_html=True)
-    method = st.selectbox("SSL Method", ["simclr", "dinov2", "moco_v3", "mae"],
+    method = st.selectbox("SSL Method", ["simclr", "dinov2", "moco_v3", "mae", "vicreg"],
                           format_func=lambda x: {"simclr": "🔵 SimCLR", "dinov2": "🟢 DINOv2",
                                                   "moco_v3": "🟣 MoCo v3", "mae": "🟡 MAE"}[x],
                           label_visibility="collapsed")
@@ -844,7 +880,7 @@ with tab3:
 
     c1, c2 = st.columns([1, 1])
     with c1:
-        tm = st.selectbox("Method", ["simclr", "dinov2", "moco_v3", "mae"], key="train_method",
+        tm = st.selectbox("Method", ["simclr", "dinov2", "moco_v3", "mae", "vicreg"], key="train_method",
                           format_func=lambda x: {"simclr": "🔵 SimCLR", "dinov2": "🟢 DINOv2",
                                                   "moco_v3": "🟣 MoCo v3", "mae": "🟡 MAE"}[x])
         tb = st.selectbox("Backbone", ["vit_small", "vit_base"], key="train_bb",
@@ -893,7 +929,7 @@ with tab3:
                 n = 0
                 for imgs, _ in loader:
                     imgs = imgs.to(dev)
-                    if tm in ("simclr", "moco_v3"):
+                    if tm in ("simclr", "moco_v3", "vicreg"):
                         result = model(imgs, torch.randn_like(imgs))
                     elif tm == "mae":
                         result = model(imgs)
@@ -1028,7 +1064,7 @@ with tab4:
 # ===== TAB 5: ANALYSIS =====
 with tab5:
     st.markdown('<div class="section-header">🔬 Advanced Analysis Tools</div>', unsafe_allow_html=True)
-    analysis_tabs = st.tabs(["📈 Confidence", "🌡️ Calibration", "🎯 Active Learning", "📚 Datasets"])
+    analysis_tabs = st.tabs(["📈 Confidence", "🌡️ Calibration", "🎯 Active Learning", "📚 Datasets", "🧮 Few-Shot k-NN"])
 
     with analysis_tabs[0]:
         st.markdown("**Confidence Distribution**")
@@ -1123,6 +1159,78 @@ with tab5:
             </div>
             """, unsafe_allow_html=True)
 
+    with analysis_tabs[4]:
+        st.markdown("**Few-Shot k-NN / Nearest-Centroid Evaluation**")
+        st.markdown("""
+        <div class="glass" style="padding:1rem; margin-bottom:1rem;">
+            <div style="color:var(--text-dim); font-size:0.75rem; line-height:1.6;">
+                Training-free adaptation: build one prototype per class from a handful of labeled
+                support images, then classify query images by nearest centroid (or k-NN vote for k &gt; 0).
+                Served by <code>POST /eval/knn</code> — the same logic as <code>scripts/onnx_knn.py</code>,
+                so the API, the CLI, and this tab always report identical numbers.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        knn_c1, knn_c2, knn_c3, knn_c4 = st.columns(4)
+        with knn_c1:
+            knn_method = st.selectbox("SSL Method", ["simclr", "dinov2", "moco_v3", "mae", "vicreg"], key="knn_method")
+        with knn_c2:
+            knn_backbone = st.selectbox("Backbone", ["vit_small", "vit_base", "vit_large"], key="knn_backbone")
+        with knn_c3:
+            knn_classes = st.slider("Classes", 2, 13, 5, key="knn_classes")
+        with knn_c4:
+            knn_shots = st.slider("Shots", 1, 20, 5, key="knn_shots")
+        knn_c5, knn_c6 = st.columns(2)
+        with knn_c5:
+            knn_k = st.slider("k (0 = nearest centroid)", 0, 20, 0, key="knn_k")
+        with knn_c6:
+            knn_data_root = st.text_input("Data root (train/<class>/ layout)", value="./data", key="knn_data_root")
+        if st.button("🚀 Run k-NN Evaluation", width="stretch"):
+            with st.spinner("🧮 Embedding few-shot split and classifying..."):
+                try:
+                    import json as _json
+                    payload = _json.dumps({
+                        "method": knn_method, "backbone": knn_backbone,
+                        "num_classes": knn_classes, "shots": knn_shots,
+                        "k": knn_k, "data_root": knn_data_root,
+                    }).encode()
+                    with api_request("/eval/knn", method="POST", data=payload,
+                                     headers={"Content-Type": "application/json"},
+                                     timeout=300) as resp:
+                        res = _json.loads(resp.read())
+                    st.markdown(f"""
+                    <div style="display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:0.8rem; margin:1rem 0;">
+                        <div class="stat-card">
+                            <div class="stat-num" style="font-size:1.5rem;">{res['accuracy']*100:.1f}%</div>
+                            <div class="stat-label">Query Accuracy</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-num" style="font-size:1.5rem;">{res['num_support']}</div>
+                            <div class="stat-label">Support Images</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-num" style="font-size:1.5rem;">{res['num_query']}</div>
+                            <div class="stat-label">Query Images</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-num" style="font-size:1.5rem;">{res['runtime_ms']/1000:.1f}s</div>
+                            <div class="stat-label">Runtime ({res['embedding_source']})</div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    try:
+                        import pandas as pd
+                        knn_df = pd.DataFrame({
+                            "Class": [f"Class {pc['class_index']}" for pc in res["per_class"]],
+                            "Accuracy": [pc["accuracy"] for pc in res["per_class"]],
+                        }).set_index("Class")
+                        st.bar_chart(knn_df)
+                    except ImportError:
+                        pass
+                    st.caption(f"Mode: {res['mode']} · {len(res['per_class'])} classes evaluated")
+                except Exception:
+                    st.info("Backend not running — start it with `python -m crop_ssl.backend.api`")
+
 
 # ===== TAB 6: MODEL REGISTRY =====
 with tab6:
@@ -1146,13 +1254,12 @@ with tab6:
         if st.button("📦 Register Model", width="stretch", type="primary"):
             if st.session_state.model:
                 try:
-                    import urllib.request, json
+                    import json
                     data = json.dumps({"model_name": reg_name, "user": user["username"]}).encode()
-                    req = urllib.request.Request(
-                        f"http://localhost:8000/registry/register?model_name={reg_name}&user={user['username']}",
-                        data=b"", method="POST",
-                    )
-                    with urllib.request.urlopen(req, timeout=5) as resp:
+                    with api_request(
+                        f"/registry/register?model_name={reg_name}&user={user['username']}",
+                        method="POST", data=b"",
+                    ) as resp:
                         result = json.loads(resp.read())
                         st.success(f"✅ Registered: {result['version_id']}")
                 except Exception:
@@ -1189,12 +1296,10 @@ with tab6:
     rollback_name = st.text_input("Model to Rollback", value="simclr_vit_small", key="rollback_name")
     if st.button("⏪ Rollback", width="stretch"):
         try:
-            import urllib.request
-            req = urllib.request.Request(
-                f"http://localhost:8000/registry/rollback?model_name={rollback_name}&user={user['username']}",
-                data=b"", method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=5) as resp:
+            with api_request(
+                f"/registry/rollback?model_name={rollback_name}&user={user['username']}",
+                method="POST", data=b"",
+            ) as resp:
                 result = json.loads(resp.read())
                 st.success(f"✅ Rolled back to {result['version']}")
         except Exception:
@@ -1349,12 +1454,10 @@ with tab7:
         if st.button("🔗 Register Webhook", key="wh_reg"):
             if wh_url:
                 try:
-                    import urllib.request
-                    req = urllib.request.Request(
-                        f"http://localhost:8000/webhooks/register?event={wh_event}&url={wh_url}",
-                        data=b"", method="POST",
-                    )
-                    with urllib.request.urlopen(req, timeout=5) as resp:
+                    with api_request(
+                        f"/webhooks/register?event={wh_event}&url={wh_url}",
+                        method="POST", data=b"",
+                    ) as resp:
                         result = json.loads(resp.read())
                         st.success(f"✅ Registered: {result['hook_id']}")
                 except Exception:
@@ -1364,9 +1467,7 @@ with tab7:
 
         if st.button("📬 Send Test Webhook", key="wh_test"):
             try:
-                import urllib.request, json
-                req = urllib.request.Request("http://localhost:8000/webhooks/test?event=test", data=b"", method="POST")
-                with urllib.request.urlopen(req, timeout=5) as resp:
+                with api_request("/webhooks/test?event=test", method="POST", data=b"") as resp:
                     result = json.loads(resp.read())
                     st.success(f"✅ Dispatched to {result['dispatched']} hooks")
             except Exception:
@@ -1412,17 +1513,15 @@ with tab7:
 
         if st.button("⚖️ Create A/B Test", key="ab_create"):
             try:
-                import urllib.request, json
+                import json
                 data = json.dumps({
                     "test_name": ab_name, "model_a": ab_model_a,
                     "model_b": ab_model_b, "traffic_split": ab_split,
                 }).encode()
-                req = urllib.request.Request(
-                    "http://localhost:8000/ab/create",
-                    data=data, method="POST",
+                with api_request(
+                    "/ab/create", method="POST", data=data,
                     headers={"Content-Type": "application/json"},
-                )
-                with urllib.request.urlopen(req, timeout=5) as resp:
+                ) as resp:
                     result = json.loads(resp.read())
                     st.success(f"✅ Created: {result['test_id']}")
             except Exception:
@@ -1467,7 +1566,7 @@ with tab7:
         pc1, pc2 = st.columns(2)
         with pc1:
             pipe_name = st.text_input("Pipeline Name", value="plantdoc_finetune", key="pipe_name")
-            pipe_ssl = st.selectbox("SSL Method", ["simclr", "dinov2", "moco_v3", "mae"], key="pipe_ssl")
+            pipe_ssl = st.selectbox("SSL Method", ["simclr", "dinov2", "moco_v3", "mae", "vicreg"], key="pipe_ssl")
         with pc2:
             pipe_dataset = st.selectbox("Source Dataset", ["plantvillage", "new_plant_diseases"], key="pipe_src")
             pipe_target = st.selectbox("Target Dataset", ["plantdoc", "fieldplant", "cassava"], key="pipe_tgt")
@@ -1481,12 +1580,10 @@ with tab7:
                     "dataset": pipe_dataset, "target_dataset": pipe_target,
                     "num_shots": pipe_shots,
                 }).encode()
-                req = urllib.request.Request(
-                    "http://localhost:8000/pipeline/create",
-                    data=data, method="POST",
+                with api_request(
+                    "/pipeline/create", method="POST", data=data,
                     headers={"Content-Type": "application/json"},
-                )
-                with urllib.request.urlopen(req, timeout=5) as resp:
+                ) as resp:
                     result = json.loads(resp.read())
                     st.success(f"✅ Pipeline created: {result['pipe_id']}")
             except Exception:
@@ -1541,11 +1638,11 @@ with tab8:
     """, unsafe_allow_html=True)
 
     features = [
-        ("🧬", "4 SSL Methods", "DINOv2, MoCo v3, SimCLR, MAE"),
+        ("🧬", "5 SSL Methods", "DINOv2, MoCo v3, SimCLR, MAE, VICReg"),
         ("🎯", "4 Adaptation", "Linear, LoRA, ProtoNet, MAML"),
         ("🔄", "3 Domain Align", "DANN, MMD, CORAL"),
         ("📚", "13 Datasets", "Lab + Field + Multi-device"),
-        ("✅", "209 Tests", "Unit, integration, efficiency"),
+        ("✅", "266 Tests", "Unit, integration, efficiency"),
         ("📦", "Model Registry", "Version control & rollback"),
         ("🤖", "Automation", "Auto-retrain, drift, A/B"),
         ("🛤️", "Pipelines", "End-to-end orchestration"),
@@ -1566,7 +1663,7 @@ with tab8:
     <div class="glass" style="padding:1.2rem;">
         <div style="color:var(--text-dim); font-size:0.75rem; line-height:1.8;">
             <strong style="color:var(--neon);">Key Contributions:</strong><br>
-            • Systematic benchmarking of 4 SSL methods across 5+ domain-shift pairs<br>
+            • Systematic benchmarking of 5 SSL methods across 5+ domain-shift pairs<br>
             • Few-shot LoRA adaptation achieving 85-91% accuracy with only 5-20 labeled field samples<br>
             • CKA analysis revealing that domain shift primarily affects shallow layers<br>
             • Attention visualization showing how SSL models "look" at disease regions<br>
@@ -1584,7 +1681,7 @@ st.markdown(f"""
 <div style="text-align:center; padding:2rem 0 1rem; margin-top:2rem;">
     <div class="divider"></div>
     <div style="margin-top:1rem; color:var(--text-muted); font-size:0.62rem; letter-spacing:1px;">
-        🧬 CropSSL v2.0 · {len(CLASSES)} Diseases · 13 Datasets · 209 Tests · 4 SSL Methods · Automation Engine
+        🧬 CropSSL v2.0 · {len(CLASSES)} Diseases · 13 Datasets · 266 Tests · 5 SSL Methods · Automation Engine
     </div>
     <div style="color:var(--text-muted); font-size:0.58rem; margin-top:0.3rem; opacity:0.5;">
         Cross-Domain Robustness of Self-Supervised Vision Foundation Models for Crop Disease Detection
